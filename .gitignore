@@ -1,0 +1,43 @@
+# macOS 文件
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Xcode 用户本地状态
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Swift Package Manager 构建产物
+.build/
+.swiftpm/
+
+# Xcode 构建产物
+build/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM/
+
+# 依赖缓存和包管理器产物
+Packages/
+Package.resolved
+Carthage/Build/
+
+# 日志和临时文件
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# JetBrains IDE 本地配置
+.idea/
+
+# 环境变量和本地配置
+.env
+.env.*
+*.local
