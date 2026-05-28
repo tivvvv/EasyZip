@@ -24,7 +24,6 @@ DerivedData/
 
 # 依赖缓存和包管理器产物
 Packages/
-Package.resolved
 Carthage/Build/
 
 # 日志和临时文件
