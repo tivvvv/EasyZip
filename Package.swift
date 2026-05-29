@@ -15,7 +15,10 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "EasyZipCore"
+            name: "EasyZipCore",
+            linkerSettings: [
+                .linkedLibrary("archive")
+            ]
         ),
         .testTarget(
             name: "EasyZipCoreTests",

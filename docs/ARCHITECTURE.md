@@ -11,7 +11,7 @@
 - 语言: Swift 6.
 - UI: SwiftUI 为主, AppKit bridge 补足菜单, 拖拽, Finder 交互, 文件选择器, 窗口细节.
 - 核心模块: Swift Package `EasyZipCore`.
-- 压缩引擎: 第一期使用 `libarchive` 作为统一底座, 覆盖 `.zip` 和 `.7z` 的读写.
+- 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖 `.zip` 和 `.7z` 的读写.
 - 依赖交付: 开发期可以用 Homebrew 或 pkg-config 接入, 正式发行使用自建 static XCFramework
   或随 app bundle 携带的动态库.
 - 并发模型: Swift Concurrency, 每个归档任务用独立 `Task`, 支持进度回调和取消.
@@ -50,6 +50,13 @@ EasyZipCore
     LibArchiveEngine
     Future engines
 ```
+
+## 当前实现
+
+- `LibArchiveEngine` 已实现 `.zip` 和 `.7z` 的列表读取, 解压和压缩.
+- `ArchiveService.makeDefault()` 默认注册 `LibArchiveEngine`.
+- 解压默认通过 `ArchivePathValidator` 校验条目路径.
+- 当前不支持加密归档, 分卷归档和覆盖时自动重命名.
 
 ## 设计原则
 

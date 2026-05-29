@@ -13,6 +13,16 @@ public final class ArchiveService: Sendable {
         self.formatDetector = formatDetector
     }
 
+    public static func makeDefault() -> ArchiveService {
+        ArchiveService(
+            registry: ArchiveEngineRegistry(
+                engines: [
+                    LibArchiveEngine()
+                ]
+            )
+        )
+    }
+
     public func listEntries(in archiveURL: URL) async throws -> [ArchiveEntry] {
         let format = try formatDetector.detectFormat(for: archiveURL)
         let engine = try await registry.engine(for: format, operation: .list)
