@@ -17,6 +17,7 @@ xcuserdata/
 # Xcode 构建产物
 build/
 DerivedData/
+dist/
 *.hmap
 *.ipa
 *.dSYM.zip

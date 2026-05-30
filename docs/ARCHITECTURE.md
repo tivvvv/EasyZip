@@ -12,8 +12,9 @@
 - UI: SwiftUI 为主, AppKit bridge 补足菜单, 拖拽, Finder 交互, 文件选择器, 窗口细节.
 - 核心模块: Swift Package `EasyZipCore`.
 - 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖 `.zip` 和 `.7z` 的读写.
-- 依赖交付: 开发期可以用 Homebrew 或 pkg-config 接入, 正式发行使用自建 static XCFramework
-  或随 app bundle 携带的动态库.
+- App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`.
+- 依赖交付: 当前使用 macOS 系统 `libarchive`, 后续如需跨系统版本一致性,
+  再评估随 app bundle 携带动态库.
 - 并发模型: Swift Concurrency, 每个归档任务用独立 `Task`, 支持进度回调和取消.
 - 测试: XCTest 覆盖领域模型, 格式识别, 路径安全, 引擎选择, 之后补真实归档 fixture.
 
@@ -25,6 +26,8 @@ EasyZip.app
     SwiftUI views
     ViewModels
     AppKit adapters
+    BuildSupport
+    Scripts
 
 EasyZipCore
   Domain
