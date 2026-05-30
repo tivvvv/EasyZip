@@ -50,15 +50,21 @@ final class EasyZipAppModel: ObservableObject {
         outputDirectory?.displayPath ?? "选择输出目录"
     }
 
+    var archiveFileNamePreview: String {
+        Self.compressionFileName(format: selectedFormat, archiveName: archiveName)
+    }
+
     func chooseItems() {
         let panel = NSOpenPanel()
         panel.title = mode == .compress ? "选择要压缩的项目" : "选择要解压的归档"
-        panel.message = mode == .compress ? "可以选择文件或文件夹" : "请选择 .zip 或 .7z 归档"
+        panel.message = mode == .compress ? "可以选择文件或文件夹" : "请选择支持的归档文件"
         panel.prompt = "添加"
         panel.allowsMultipleSelection = true
         panel.canChooseFiles = true
         panel.canChooseDirectories = mode == .compress
-        panel.allowedContentTypes = mode == .extract ? [.zip, UTType(filenameExtension: "7z")].compactMap { $0 } : []
+        panel.allowedContentTypes = mode == .extract
+            ? ArchiveFormat.supportedPathExtensions.compactMap { UTType(filenameExtension: $0) }
+            : []
 
         if panel.runModal() == .OK {
             addFileURLs(panel.urls)
@@ -86,7 +92,7 @@ final class EasyZipAppModel: ObservableObject {
                 return true
             }
 
-            return url.pathExtension.lowercased() == "zip" || url.pathExtension.lowercased() == "7z"
+            return ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent)
         }
         var mergedURLs = selectedItems
 
@@ -354,13 +360,21 @@ final class EasyZipAppModel: ObservableObject {
         let directoryURL = outputDirectory
             ?? sourceURLs.first?.deletingLastPathComponent()
             ?? FileManager.default.homeDirectoryForCurrentUser
-        let cleanName = archiveName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseName = cleanName.isEmpty ? "归档文件" : cleanName
-        let fileName = baseName.hasSuffix(".\(format.fileExtension)")
-            ? baseName
-            : "\(baseName).\(format.fileExtension)"
+        let fileName = compressionFileName(format: format, archiveName: archiveName)
 
         return directoryURL.appendingPathComponent(fileName)
+    }
+
+    private static func compressionFileName(format: ArchiveFormat, archiveName: String) -> String {
+        let cleanName = archiveName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseName = cleanName.isEmpty ? "归档文件" : cleanName
+        let normalizedBaseName = baseName.lowercased()
+
+        if format.fileExtensions.contains(where: { normalizedBaseName.hasSuffix(".\($0)") }) {
+            return baseName
+        }
+
+        return "\(baseName).\(format.fileExtension)"
     }
 
     private static func extractionDestinationURL(
@@ -375,10 +389,8 @@ final class EasyZipAppModel: ObservableObject {
             return baseDirectory
         }
 
-        return baseDirectory.appendingPathComponent(
-            archiveURL.deletingPathExtension().lastPathComponent,
-            isDirectory: true
-        )
+        let directoryName = ArchiveFormat.removingArchiveExtension(from: archiveURL.lastPathComponent)
+        return baseDirectory.appendingPathComponent(directoryName, isDirectory: true)
     }
 
     private func userFacingErrorMessage(for error: Error) -> String {

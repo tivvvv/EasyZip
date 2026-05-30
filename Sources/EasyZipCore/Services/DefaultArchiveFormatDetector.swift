@@ -5,15 +5,13 @@ public struct DefaultArchiveFormatDetector: ArchiveFormatDetecting {
     public init() {}
 
     public func detectFormat(for archiveURL: URL) throws -> ArchiveFormat {
-        let ext = archiveURL.pathExtension.lowercased()
-
-        switch ext {
-        case "zip":
-            return .zip
-        case "7z":
-            return .sevenZip
-        default:
-            throw ArchiveError.unsupportedFormat(ext)
+        if let format = ArchiveFormat.matching(filename: archiveURL.lastPathComponent) {
+            return format
         }
+
+        let ext = archiveURL.pathExtension.lowercased()
+        let unsupportedValue = ext.isEmpty ? archiveURL.lastPathComponent : ext
+
+        throw ArchiveError.unsupportedFormat(unsupportedValue)
     }
 }

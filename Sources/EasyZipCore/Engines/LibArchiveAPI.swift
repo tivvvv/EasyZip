@@ -26,6 +26,9 @@ func archive_read_support_format_zip(_ archive: OpaquePointer?) -> Int32
 @_silgen_name("archive_read_support_format_7zip")
 func archive_read_support_format_7zip(_ archive: OpaquePointer?) -> Int32
 
+@_silgen_name("archive_read_support_format_tar")
+func archive_read_support_format_tar(_ archive: OpaquePointer?) -> Int32
+
 @_silgen_name("archive_read_open_filename")
 func archive_read_open_filename(
     _ archive: OpaquePointer?,
@@ -63,6 +66,21 @@ func archive_write_set_format_zip(_ archive: OpaquePointer?) -> Int32
 
 @_silgen_name("archive_write_set_format_7zip")
 func archive_write_set_format_7zip(_ archive: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_write_set_format_pax_restricted")
+func archive_write_set_format_pax_restricted(_ archive: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_write_add_filter_none")
+func archive_write_add_filter_none(_ archive: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_write_add_filter_gzip")
+func archive_write_add_filter_gzip(_ archive: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_write_add_filter_bzip2")
+func archive_write_add_filter_bzip2(_ archive: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_write_add_filter_xz")
+func archive_write_add_filter_xz(_ archive: OpaquePointer?) -> Int32
 
 @_silgen_name("archive_write_open_filename")
 func archive_write_open_filename(

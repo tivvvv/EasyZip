@@ -2,16 +2,16 @@
 
 ## 第一期目标
 
-- 支持 `.zip` 和 `.7z` 的列表预览, 解压, 压缩.
+- 支持 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz` 的列表预览, 解压, 压缩.
 - 先不做加密压缩, 分卷压缩, 云盘同步, Finder 扩展.
-- 核心能力必须和 UI 解耦, 后续新增 RAR, tar, gzip, xz 等格式时只增加引擎或格式适配.
+- 核心能力必须和 UI 解耦, 后续新增 RAR, 单文件 gzip, 单文件 xz 等格式时只增加引擎或格式适配.
 
 ## 技术栈
 
 - 语言: Swift 6.
 - UI: SwiftUI 为主, AppKit bridge 补足菜单, 拖拽, Finder 交互, 文件选择器, 窗口细节.
 - 核心模块: Swift Package `EasyZipCore`.
-- 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖 `.zip` 和 `.7z` 的读写.
+- 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖常见归档格式的读写.
 - App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`.
 - 依赖交付: 当前使用 macOS 系统 `libarchive`, 后续如需跨系统版本一致性,
   再评估随 app bundle 携带动态库.
@@ -56,7 +56,9 @@ EasyZipCore
 
 ## 当前实现
 
-- `LibArchiveEngine` 已实现 `.zip` 和 `.7z` 的列表读取, 解压和压缩.
+- `LibArchiveEngine` 已实现 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz` 的列表读取,
+  解压和压缩.
+- `ArchiveFormat` 集中维护格式主扩展名, 别名扩展名和 UI 显示名.
 - `ArchiveService.makeDefault()` 默认注册 `LibArchiveEngine`.
 - 解压默认通过 `ArchivePathValidator` 校验条目路径.
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`.
@@ -87,5 +89,5 @@ EasyZipCore
 - 7z 疑难兼容: 如果 libarchive 在加密 7z 或特殊压缩方法上不足, 增加 `SevenZipEngine`
   作为 fallback.
 - RAR 解压: 增加 `UnarEngine` 或 `XADEngine`, 只支持解压.
-- tar 系列: 用现有 `LibArchiveEngine` 增加格式映射即可.
+- tar 系列: 已通过现有 `LibArchiveEngine` 接入, 后续可继续增加 `.tar.zst`.
 - Finder 扩展: 新增 app extension target, 只通过 IPC 或 shared service 调用核心能力.

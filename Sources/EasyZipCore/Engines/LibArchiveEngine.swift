@@ -5,8 +5,8 @@ public struct LibArchiveEngine: ArchiveEngine {
     public let identifier = "libarchive"
 
     public let capabilities = ArchiveEngineCapabilities(
-        readableFormats: [.zip, .sevenZip],
-        writableFormats: [.zip, .sevenZip]
+        readableFormats: Set(ArchiveFormat.allCases),
+        writableFormats: Set(ArchiveFormat.allCases)
     )
 
     private let bufferSize: Int
@@ -279,6 +279,11 @@ private extension LibArchiveEngine {
                 archive: archive,
                 operation: "enable 7z reader"
             )
+            try require(
+                archive_read_support_format_tar(archive),
+                archive: archive,
+                operation: "enable tar reader"
+            )
             try archiveURL.path.withCString { path in
                 try require(
                     archive_read_open_filename(archive, path, bufferSize),
@@ -303,20 +308,7 @@ private extension LibArchiveEngine {
         }
 
         do {
-            switch request.format {
-            case .zip:
-                try require(
-                    archive_write_set_format_zip(archive),
-                    archive: archive,
-                    operation: "enable zip writer"
-                )
-            case .sevenZip:
-                try require(
-                    archive_write_set_format_7zip(archive),
-                    archive: archive,
-                    operation: "enable 7z writer"
-                )
-            }
+            try configureWriter(archive, for: request.format)
 
             try request.destinationURL.path.withCString { path in
                 try require(
@@ -331,6 +323,48 @@ private extension LibArchiveEngine {
             _ = archive_write_free(archive)
             throw error
         }
+    }
+
+    func configureWriter(_ archive: OpaquePointer, for format: ArchiveFormat) throws {
+        switch format {
+        case .zip:
+            try require(
+                archive_write_set_format_zip(archive),
+                archive: archive,
+                operation: "enable zip writer"
+            )
+        case .sevenZip:
+            try require(
+                archive_write_set_format_7zip(archive),
+                archive: archive,
+                operation: "enable 7z writer"
+            )
+        case .tar:
+            try configureTarWriter(archive, filter: archive_write_add_filter_none, filterName: "none")
+        case .tarGzip:
+            try configureTarWriter(archive, filter: archive_write_add_filter_gzip, filterName: "gzip")
+        case .tarBzip2:
+            try configureTarWriter(archive, filter: archive_write_add_filter_bzip2, filterName: "bzip2")
+        case .tarXz:
+            try configureTarWriter(archive, filter: archive_write_add_filter_xz, filterName: "xz")
+        }
+    }
+
+    func configureTarWriter(
+        _ archive: OpaquePointer,
+        filter: (OpaquePointer?) -> Int32,
+        filterName: String
+    ) throws {
+        try require(
+            archive_write_set_format_pax_restricted(archive),
+            archive: archive,
+            operation: "enable tar writer"
+        )
+        try require(
+            filter(archive),
+            archive: archive,
+            operation: "enable \(filterName) filter"
+        )
     }
 
     func makeArchiveEntry(from rawEntry: OpaquePointer) -> ArchiveEntry {

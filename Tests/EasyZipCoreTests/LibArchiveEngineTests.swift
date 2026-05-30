@@ -13,6 +13,22 @@ final class LibArchiveEngineTests: XCTestCase {
         try await assertRoundTrip(format: .sevenZip, archiveName: "sample.7z")
     }
 
+    func testCreatesListsAndExtractsTarArchive() async throws {
+        try await assertRoundTrip(format: .tar, archiveName: "sample.tar")
+    }
+
+    func testCreatesListsAndExtractsTarGzipArchive() async throws {
+        try await assertRoundTrip(format: .tarGzip, archiveName: "sample.tar.gz")
+    }
+
+    func testCreatesListsAndExtractsTarBzip2Archive() async throws {
+        try await assertRoundTrip(format: .tarBzip2, archiveName: "sample.tar.bz2")
+    }
+
+    func testCreatesListsAndExtractsTarXzArchive() async throws {
+        try await assertRoundTrip(format: .tarXz, archiveName: "sample.tar.xz")
+    }
+
     func testDefaultArchiveServiceUsesLibArchiveEngine() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {

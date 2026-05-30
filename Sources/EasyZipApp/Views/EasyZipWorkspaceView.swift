@@ -177,8 +177,7 @@ private struct QueueRow: View {
     }
 
     private var iconName: String {
-        let ext = url.pathExtension.lowercased()
-        return ext == "zip" || ext == "7z" ? "doc.zipper" : "doc"
+        ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent) ? "doc.zipper" : "doc"
     }
 }
 
@@ -220,7 +219,7 @@ private struct DropZoneView: View {
                         .font(.system(size: 34, weight: .medium))
                         .foregroundStyle(.blue)
 
-                    Text(model.mode == .compress ? "拖入文件或文件夹" : "拖入 .zip 或 .7z 归档")
+                    Text(model.mode == .compress ? "拖入文件或文件夹" : "拖入支持的归档文件")
                         .font(.system(size: 18, weight: .semibold))
 
                     Text(model.selectedItems.isEmpty ? "等待添加" : "已选择 \(model.selectedItems.count) 项")
@@ -261,12 +260,13 @@ private struct OptionsPanelView: View {
             if model.mode == .compress {
                 LabeledContent("格式") {
                     Picker("格式", selection: $model.selectedFormat) {
-                        Text(".zip").tag(ArchiveFormat.zip)
-                        Text(".7z").tag(ArchiveFormat.sevenZip)
+                        ForEach(ArchiveFormat.allCases, id: \.self) { format in
+                            Text(format.displayExtension).tag(format)
+                        }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 130)
+                    .frame(width: 150)
                 }
 
                 LabeledContent("名称") {
@@ -378,8 +378,8 @@ private struct CompressionSummaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SummaryRow(title: "格式", value: ".\(model.selectedFormat.fileExtension)")
-            SummaryRow(title: "归档文件", value: "\(model.archiveName).\(model.selectedFormat.fileExtension)")
+            SummaryRow(title: "格式", value: model.selectedFormat.displayExtension)
+            SummaryRow(title: "归档文件", value: model.archiveFileNamePreview)
             SummaryRow(title: "隐藏文件", value: model.includeHiddenFiles ? "包含" : "跳过")
             SummaryRow(title: "父目录", value: model.preserveParentDirectory ? "保留" : "不保留")
 
