@@ -26,6 +26,12 @@ func archive_read_support_format_zip(_ archive: OpaquePointer?) -> Int32
 @_silgen_name("archive_read_support_format_7zip")
 func archive_read_support_format_7zip(_ archive: OpaquePointer?) -> Int32
 
+@_silgen_name("archive_read_support_format_rar")
+func archive_read_support_format_rar(_ archive: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_read_support_format_rar5")
+func archive_read_support_format_rar5(_ archive: OpaquePointer?) -> Int32
+
 @_silgen_name("archive_read_support_format_tar")
 func archive_read_support_format_tar(_ archive: OpaquePointer?) -> Int32
 

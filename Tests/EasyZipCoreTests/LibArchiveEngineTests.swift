@@ -65,6 +65,41 @@ final class LibArchiveEngineTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: extractedFileURL, encoding: .utf8), "hello easyzip")
     }
 
+    func testLibArchiveSupportsRARReadingButNotWriting() {
+        let engine = LibArchiveEngine()
+
+        XCTAssertTrue(engine.canHandle(format: .rar, operation: .list))
+        XCTAssertTrue(engine.canHandle(format: .rar, operation: .extract))
+        XCTAssertFalse(engine.canHandle(format: .rar, operation: .create))
+    }
+
+    func testRARCompressionReportsMissingToolWhenUnavailable() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("sample.rar")
+        let missingToolURL = workspaceURL.appendingPathComponent("missing-rar")
+        let engine = RARCommandCompressionEngine(executableURL: missingToolURL)
+
+        do {
+            try await engine.create(
+                CompressionRequest(
+                    sourceURLs: [sourceURL],
+                    destinationURL: archiveURL,
+                    format: .rar
+                )
+            )
+            XCTFail("Expected missing external tool error.")
+        } catch ArchiveError.externalToolUnavailable(let toolName) {
+            XCTAssertEqual(toolName, "rar")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testCreateSkipsHiddenFilesByDefault() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -141,6 +176,135 @@ final class LibArchiveEngineTests: XCTestCase {
 
         XCTAssertEqual(try String(contentsOf: existingFileURL, encoding: .utf8), "existing")
         XCTAssertEqual(try String(contentsOf: renamedFileURL, encoding: .utf8), "hello easyzip")
+    }
+
+    func testCreateRejectsDestinationMatchingSource() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = workspaceURL.appendingPathComponent("source.zip")
+        try "keep me".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let engine = LibArchiveEngine()
+
+        do {
+            try await engine.create(
+                CompressionRequest(
+                    sourceURLs: [sourceURL],
+                    destinationURL: sourceURL,
+                    format: .zip
+                )
+            )
+            XCTFail("Expected invalid destination error.")
+        } catch ArchiveError.invalidDestination(let url) {
+            XCTAssertEqual(url.standardizedFileURL.path, sourceURL.standardizedFileURL.path)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(try String(contentsOf: sourceURL, encoding: .utf8), "keep me")
+    }
+
+    func testCreateRejectsDestinationInsideSourceDirectory() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = sourceURL.appendingPathComponent("nested-output.zip")
+        let engine = LibArchiveEngine()
+
+        do {
+            try await engine.create(
+                CompressionRequest(
+                    sourceURLs: [sourceURL],
+                    destinationURL: archiveURL,
+                    format: .zip
+                )
+            )
+            XCTFail("Expected invalid destination error.")
+        } catch ArchiveError.invalidDestination(let url) {
+            XCTAssertEqual(url.standardizedFileURL.path, archiveURL.standardizedFileURL.path)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testCreateKeepsExistingDestinationWhenSourceIsInvalid() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let archiveURL = workspaceURL.appendingPathComponent("existing.zip")
+        let missingSourceURL = workspaceURL.appendingPathComponent("missing")
+        let engine = LibArchiveEngine()
+
+        try "existing archive".write(to: archiveURL, atomically: true, encoding: .utf8)
+
+        do {
+            try await engine.create(
+                CompressionRequest(
+                    sourceURLs: [missingSourceURL],
+                    destinationURL: archiveURL,
+                    format: .zip
+                )
+            )
+            XCTFail("Expected invalid source error.")
+        } catch ArchiveError.invalidSource(let url) {
+            XCTAssertEqual(url.standardizedFileURL.path, missingSourceURL.standardizedFileURL.path)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(try String(contentsOf: archiveURL, encoding: .utf8), "existing archive")
+    }
+
+    func testExtractRejectsExistingSymlinkDirectoryEscape() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("symlink-parent.zip")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let outsideURL = workspaceURL.appendingPathComponent("outside", isDirectory: true)
+        let symlinkURL = outputURL.appendingPathComponent("source")
+        let engine = LibArchiveEngine()
+
+        try await engine.create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip,
+                options: .init(includeHiddenFiles: true)
+            )
+        )
+
+        try fileManager.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outsideURL, withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(
+            atPath: symlinkURL.path,
+            withDestinationPath: outsideURL.path
+        )
+
+        do {
+            try await engine.extract(
+                ExtractionRequest(
+                    archiveURL: archiveURL,
+                    destinationURL: outputURL,
+                    options: .init(overwritePolicy: .overwrite)
+                )
+            )
+            XCTFail("Expected unsafe entry path error.")
+        } catch ArchiveError.unsafeEntryPath {
+            XCTAssertFalse(fileManager.fileExists(atPath: outsideURL.appendingPathComponent("hello.txt").path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testCreateReportsByteProgress() async throws {

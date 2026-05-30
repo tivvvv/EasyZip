@@ -33,6 +33,7 @@ final class EasyZipAppModel: ObservableObject {
     @Published var progressText = "空闲"
     @Published var isRunning = false
     @Published var isDropTargeted = false
+    @Published var taskResult: TaskResult?
     @Published var alert: AppAlert?
 
     private var operationTask: Task<Void, Never>?
@@ -54,7 +55,15 @@ final class EasyZipAppModel: ObservableObject {
         Self.compressionFileName(format: selectedFormat, archiveName: archiveName)
     }
 
+    var canRevealOutput: Bool {
+        revealTargetURL != nil
+    }
+
     func chooseItems() {
+        guard !isRunning else {
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.title = mode == .compress ? "选择要压缩的项目" : "选择要解压的归档"
         panel.message = mode == .compress ? "可以选择文件或文件夹" : "请选择支持的归档文件"
@@ -72,6 +81,10 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     func chooseOutputDirectory() {
+        guard !isRunning else {
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.title = "选择输出目录"
         panel.message = "任务结果将保存到这里"
@@ -87,6 +100,10 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     func addFileURLs(_ urls: [URL]) {
+        guard !isRunning else {
+            return
+        }
+
         let filteredURLs = urls.filter { url in
             if mode == .compress {
                 return true
@@ -107,6 +124,10 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     func removeItem(_ url: URL) {
+        guard !isRunning else {
+            return
+        }
+
         selectedItems.removeAll { $0 == url }
         resetProgressIfIdle()
         updateDefaultArchiveName()
@@ -114,6 +135,10 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     func clearItems() {
+        guard !isRunning else {
+            return
+        }
+
         selectedItems.removeAll()
         archiveEntries.removeAll()
         previewState = "未选择归档"
@@ -129,6 +154,12 @@ final class EasyZipAppModel: ObservableObject {
         isRunning = true
         progressFraction = 0
         progressText = mode == .compress ? "准备压缩" : "准备解压"
+        taskResult = TaskResult(
+            title: "任务进行中",
+            detail: "\(mode.rawValue)任务正在执行",
+            outputURL: nil,
+            iconName: "clock"
+        )
 
         let mode = mode
         let selectedItems = selectedItems
@@ -142,9 +173,11 @@ final class EasyZipAppModel: ObservableObject {
 
         operationTask = Task.detached { [weak self] in
             do {
+                let result: TaskResult
+
                 switch mode {
                 case .compress:
-                    try await Self.compress(
+                    result = try await Self.compress(
                         sourceURLs: selectedItems,
                         outputDirectory: outputDirectory,
                         format: selectedFormat,
@@ -159,7 +192,7 @@ final class EasyZipAppModel: ObservableObject {
                         }
                     )
                 case .extract:
-                    try await Self.extract(
+                    result = try await Self.extract(
                         archiveURLs: selectedItems,
                         outputDirectory: outputDirectory,
                         overwritePolicy: overwritePolicy,
@@ -171,9 +204,9 @@ final class EasyZipAppModel: ObservableObject {
                     )
                 }
 
-                await self?.finishOperation(message: "\(mode.rawValue)完成")
+                await self?.finishOperation(result)
             } catch is CancellationError {
-                await self?.finishOperation(message: "已取消")
+                await self?.cancelOperationResult()
             } catch {
                 await self?.failOperation(error)
             }
@@ -185,14 +218,18 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     func revealOutputInFinder() {
-        guard let outputDirectory else {
+        guard let revealTargetURL else {
             return
         }
 
-        NSWorkspace.shared.activateFileViewerSelecting([outputDirectory])
+        NSWorkspace.shared.activateFileViewerSelecting([revealTargetURL])
     }
 
     func handleDrop(providers: [NSItemProvider]) -> Bool {
+        guard !isRunning else {
+            return false
+        }
+
         let providers = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
 
         for provider in providers {
@@ -209,6 +246,10 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         return !providers.isEmpty
+    }
+
+    private var revealTargetURL: URL? {
+        taskResult?.outputURL ?? outputDirectory
     }
 
     private func updateDefaultArchiveName() {
@@ -282,17 +323,37 @@ final class EasyZipAppModel: ObservableObject {
         }
     }
 
-    private func finishOperation(message: String) {
+    private func finishOperation(_ result: TaskResult) {
         isRunning = false
         progressFraction = 1
-        progressText = message
+        progressText = result.title
+        taskResult = result
+        refreshArchivePreview()
+    }
+
+    private func cancelOperationResult() {
+        isRunning = false
+        progressText = "已取消"
+        taskResult = TaskResult(
+            title: "已取消",
+            detail: "任务没有完成",
+            outputURL: nil,
+            iconName: "xmark.circle"
+        )
         refreshArchivePreview()
     }
 
     private func failOperation(_ error: Error) {
         isRunning = false
         progressText = "失败"
-        alert = AppAlert(title: "操作失败", message: userFacingErrorMessage(for: error))
+        let message = userFacingErrorMessage(for: error)
+        taskResult = TaskResult(
+            title: "操作失败",
+            detail: message,
+            outputURL: nil,
+            iconName: "exclamationmark.triangle"
+        )
+        alert = AppAlert(title: "操作失败", message: message)
     }
 
     private static func compress(
@@ -304,7 +365,7 @@ final class EasyZipAppModel: ObservableObject {
         preserveParentDirectory: Bool,
         preserveMetadata: Bool,
         progressHandler: ArchiveProgressHandler?
-    ) async throws {
+    ) async throws -> TaskResult {
         let destinationURL = compressionDestinationURL(
             sourceURLs: sourceURLs,
             outputDirectory: outputDirectory,
@@ -323,6 +384,13 @@ final class EasyZipAppModel: ObservableObject {
         )
 
         try await ArchiveService.makeDefault().create(request, progress: progressHandler)
+
+        return TaskResult(
+            title: "压缩完成",
+            detail: "已生成 \(destinationURL.lastPathComponent)",
+            outputURL: destinationURL,
+            iconName: "checkmark.circle"
+        )
     }
 
     private static func extract(
@@ -330,8 +398,9 @@ final class EasyZipAppModel: ObservableObject {
         outputDirectory: URL?,
         overwritePolicy: OverwritePolicy,
         progressHandler: ArchiveProgressHandler?
-    ) async throws {
+    ) async throws -> TaskResult {
         let service = ArchiveService.makeDefault()
+        var destinationURLs: [URL] = []
 
         for archiveURL in archiveURLs {
             try Task.checkCancellation()
@@ -341,6 +410,8 @@ final class EasyZipAppModel: ObservableObject {
                 archiveCount: archiveURLs.count,
                 outputDirectory: outputDirectory
             )
+            destinationURLs.append(destinationURL)
+
             let request = ExtractionRequest(
                 archiveURL: archiveURL,
                 destinationURL: destinationURL,
@@ -349,6 +420,17 @@ final class EasyZipAppModel: ObservableObject {
 
             try await service.extract(request, progress: progressHandler)
         }
+
+        return TaskResult(
+            title: "解压完成",
+            detail: extractionResultDetail(archiveURLs: archiveURLs),
+            outputURL: extractionRevealURL(
+                archiveURLs: archiveURLs,
+                destinationURLs: destinationURLs,
+                outputDirectory: outputDirectory
+            ),
+            iconName: "checkmark.circle"
+        )
     }
 
     private static func compressionDestinationURL(
@@ -393,6 +475,30 @@ final class EasyZipAppModel: ObservableObject {
         return baseDirectory.appendingPathComponent(directoryName, isDirectory: true)
     }
 
+    private static func extractionResultDetail(archiveURLs: [URL]) -> String {
+        guard archiveURLs.count == 1, let archiveURL = archiveURLs.first else {
+            return "已处理 \(archiveURLs.count) 个归档"
+        }
+
+        return "已解压 \(archiveURL.lastPathComponent)"
+    }
+
+    private static func extractionRevealURL(
+        archiveURLs: [URL],
+        destinationURLs: [URL],
+        outputDirectory: URL?
+    ) -> URL? {
+        if let outputDirectory {
+            return outputDirectory
+        }
+
+        if archiveURLs.count == 1 {
+            return destinationURLs.first
+        }
+
+        return archiveURLs.first?.deletingLastPathComponent()
+    }
+
     private func userFacingErrorMessage(for error: Error) -> String {
         guard let archiveError = error as? ArchiveError else {
             return "操作未完成, 请检查文件和输出目录"
@@ -409,6 +515,8 @@ final class EasyZipAppModel: ObservableObject {
             return "输出位置无效: \(url.path)"
         case .encryptedArchive(let url):
             return "暂不支持加密归档: \(url.path)"
+        case .externalToolUnavailable(let toolName):
+            return "未找到外部工具: \(toolName)。RAR 压缩需要安装 RAR 命令行工具"
         case .unsafeEntryPath(let path):
             return "归档内包含不安全路径: \(path)"
         case .engineFailure:

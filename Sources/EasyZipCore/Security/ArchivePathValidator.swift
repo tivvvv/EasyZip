@@ -17,7 +17,7 @@ public struct ArchivePathValidator: Sendable {
             throw ArchiveError.unsafeEntryPath(entryPath)
         }
 
-        guard !entryPath.hasPrefix("/") else {
+        guard !entryPath.hasPrefix("/"), !entryPath.hasPrefix("\\") else {
             throw ArchiveError.unsafeEntryPath(entryPath)
         }
 

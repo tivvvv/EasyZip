@@ -26,11 +26,38 @@ final class ArchivePathValidatorTests: XCTestCase {
         }
     }
 
+    func testRejectsBackslashAbsolutePath() throws {
+        let validator = ArchivePathValidator(destinationURL: URL(fileURLWithPath: "/tmp/output"))
+
+        XCTAssertThrowsError(try validator.validatedDestination(for: "\\etc\\passwd")) { error in
+            XCTAssertEqual(error as? ArchiveError, .unsafeEntryPath("\\etc\\passwd"))
+        }
+    }
+
     func testRejectsWindowsDrivePath() throws {
         let validator = ArchivePathValidator(destinationURL: URL(fileURLWithPath: "/tmp/output"))
 
         XCTAssertThrowsError(try validator.validatedDestination(for: "C:\\Users\\file.txt")) { error in
             XCTAssertEqual(error as? ArchiveError, .unsafeEntryPath("C:\\Users\\file.txt"))
+        }
+    }
+
+    func testRejectsEmptyAndDotComponents() throws {
+        let validator = ArchivePathValidator(destinationURL: URL(fileURLWithPath: "/tmp/output"))
+
+        XCTAssertThrowsError(try validator.validatedDestination(for: "folder//file.txt")) { error in
+            XCTAssertEqual(error as? ArchiveError, .unsafeEntryPath("folder//file.txt"))
+        }
+        XCTAssertThrowsError(try validator.validatedDestination(for: "folder/./file.txt")) { error in
+            XCTAssertEqual(error as? ArchiveError, .unsafeEntryPath("folder/./file.txt"))
+        }
+    }
+
+    func testRejectsNullByte() throws {
+        let validator = ArchivePathValidator(destinationURL: URL(fileURLWithPath: "/tmp/output"))
+
+        XCTAssertThrowsError(try validator.validatedDestination(for: "folder/\0file.txt")) { error in
+            XCTAssertEqual(error as? ArchiveError, .unsafeEntryPath("folder/\0file.txt"))
         }
     }
 }

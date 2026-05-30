@@ -17,7 +17,8 @@ public final class ArchiveService: Sendable {
         ArchiveService(
             registry: ArchiveEngineRegistry(
                 engines: [
-                    LibArchiveEngine()
+                    LibArchiveEngine(),
+                    RARCommandCompressionEngine()
                 ]
             )
         )

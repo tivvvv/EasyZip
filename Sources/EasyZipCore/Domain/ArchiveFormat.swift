@@ -1,6 +1,7 @@
 /// EasyZip 支持的归档格式.
 public enum ArchiveFormat: CaseIterable, Hashable, Sendable {
     case zip
+    case rar
     case sevenZip
     case tar
     case tarGzip
@@ -15,6 +16,8 @@ public enum ArchiveFormat: CaseIterable, Hashable, Sendable {
         switch self {
         case .zip:
             ["zip"]
+        case .rar:
+            ["rar"]
         case .sevenZip:
             ["7z"]
         case .tar:
@@ -32,6 +35,8 @@ public enum ArchiveFormat: CaseIterable, Hashable, Sendable {
         switch self {
         case .zip:
             "ZIP"
+        case .rar:
+            "RAR"
         case .sevenZip:
             "7z"
         case .tar:

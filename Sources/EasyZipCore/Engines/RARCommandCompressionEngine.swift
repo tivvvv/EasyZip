@@ -1,0 +1,244 @@
+import Foundation
+
+/// 通过已安装的外部 `rar` 命令创建 RAR 归档.
+public struct RARCommandCompressionEngine: ArchiveEngine {
+    public let identifier = "rar-command"
+
+    public let capabilities = ArchiveEngineCapabilities(
+        readableFormats: [],
+        writableFormats: [.rar]
+    )
+
+    private let executableURL: URL?
+
+    private var fileManager: FileManager {
+        .default
+    }
+
+    public init(executableURL: URL? = nil) {
+        self.executableURL = executableURL
+    }
+
+    public func listEntries(in archiveURL: URL) async throws -> [ArchiveEntry] {
+        throw ArchiveError.unsupportedOperation(format: .rar, operation: .list)
+    }
+
+    public func extract(
+        _ request: ExtractionRequest,
+        progress: ArchiveProgressHandler? = nil
+    ) async throws {
+        throw ArchiveError.unsupportedOperation(format: .rar, operation: .extract)
+    }
+
+    public func create(
+        _ request: CompressionRequest,
+        progress: ArchiveProgressHandler? = nil
+    ) async throws {
+        guard request.format == .rar else {
+            throw ArchiveError.unsupportedOperation(format: request.format, operation: .create)
+        }
+
+        guard !request.sourceURLs.isEmpty else {
+            throw ArchiveError.invalidSource(request.destinationURL)
+        }
+
+        let destinationPlanner = CompressionDestinationPlanner()
+        try destinationPlanner.validate(
+            destinationURL: request.destinationURL,
+            sourceURLs: request.sourceURLs
+        )
+
+        let executableURL = try resolvedExecutableURL()
+        let temporaryDestinationURL = try destinationPlanner.makeTemporaryDestinationURL(
+            for: request.destinationURL
+        )
+        var didFinalizeDestination = false
+        defer {
+            if !didFinalizeDestination {
+                destinationPlanner.removeTemporaryDestination(temporaryDestinationURL)
+            }
+        }
+
+        let totalByteCount = try regularFileByteCount(in: request.sourceURLs)
+        progress?(
+            ArchiveProgress(
+                phase: .compressing,
+                completedUnitCount: 0,
+                totalUnitCount: totalByteCount
+            )
+        )
+
+        try Task.checkCancellation()
+        try runRAR(
+            executableURL: executableURL,
+            arguments: makeArguments(
+                for: request,
+                temporaryDestinationURL: temporaryDestinationURL
+            )
+        )
+        try Task.checkCancellation()
+
+        try destinationPlanner.finalizeTemporaryDestination(
+            temporaryDestinationURL,
+            destinationURL: request.destinationURL
+        )
+        didFinalizeDestination = true
+
+        progress?(
+            ArchiveProgress(
+                phase: .finishing,
+                completedUnitCount: totalByteCount ?? 0,
+                totalUnitCount: totalByteCount
+            )
+        )
+    }
+}
+
+private extension RARCommandCompressionEngine {
+    func resolvedExecutableURL() throws -> URL {
+        if let executableURL {
+            guard fileManager.isExecutableFile(atPath: executableURL.path) else {
+                throw ArchiveError.externalToolUnavailable("rar")
+            }
+
+            return executableURL
+        }
+
+        let candidatePaths = [
+            "/opt/homebrew/bin/rar",
+            "/usr/local/bin/rar",
+            "/usr/bin/rar"
+        ]
+
+        for path in candidatePaths where fileManager.isExecutableFile(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+
+        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        for directory in pathValue.split(separator: ":").map(String.init) {
+            let candidateURL = URL(fileURLWithPath: directory)
+                .appendingPathComponent("rar")
+
+            if fileManager.isExecutableFile(atPath: candidateURL.path) {
+                return candidateURL
+            }
+        }
+
+        throw ArchiveError.externalToolUnavailable("rar")
+    }
+
+    func makeArguments(
+        for request: CompressionRequest,
+        temporaryDestinationURL: URL
+    ) throws -> [String] {
+        var arguments = [
+            "a",
+            "-idq",
+            "-y",
+            "-ep1",
+            compressionLevelArgument(for: request.options.compressionLevel)
+        ]
+
+        if !request.options.includeHiddenFiles {
+            arguments.append(contentsOf: ["-x.*", "-x*/.*"])
+        }
+
+        arguments.append(temporaryDestinationURL.path)
+        arguments.append(contentsOf: try sourceArguments(for: request))
+        return arguments
+    }
+
+    func sourceArguments(for request: CompressionRequest) throws -> [String] {
+        guard !request.options.preserveParentDirectory,
+              request.sourceURLs.count == 1,
+              let sourceURL = request.sourceURLs.first,
+              isDirectory(sourceURL) else {
+            return request.sourceURLs.map(\.path)
+        }
+
+        let childURLs = try fileManager.contentsOfDirectory(
+            at: sourceURL,
+            includingPropertiesForKeys: nil
+        ).filter { request.options.includeHiddenFiles || !$0.lastPathComponent.hasPrefix(".") }
+
+        guard !childURLs.isEmpty else {
+            return [sourceURL.path]
+        }
+
+        return childURLs.map(\.path)
+    }
+
+    func compressionLevelArgument(for level: CompressionLevel) -> String {
+        switch level {
+        case .fastest:
+            "-m1"
+        case .balanced:
+            "-m3"
+        case .maximum:
+            "-m5"
+        case .custom(let value):
+            "-m\(min(max(value, 0), 5))"
+        }
+    }
+
+    func runRAR(executableURL: URL, arguments: [String]) throws {
+        let process = Process()
+        let standardError = Pipe()
+        let standardOutput = Pipe()
+
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.standardError = standardError
+        process.standardOutput = standardOutput
+
+        do {
+            try process.run()
+        } catch {
+            throw ArchiveError.externalToolUnavailable("rar")
+        }
+
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
+            let outputData = standardOutput.fileHandleForReading.readDataToEndOfFile()
+            let message = String(data: errorData + outputData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw ArchiveError.engineFailure(
+                engine: identifier,
+                message: message?.isEmpty == false ? message! : "rar exited with status \(process.terminationStatus)"
+            )
+        }
+    }
+
+    func regularFileByteCount(in urls: [URL]) throws -> Int64? {
+        try urls.reduce(Int64(0)) { partialResult, url in
+            let attributes = try fileManager.attributesOfItem(atPath: url.path)
+            let fileType = attributes[.type] as? FileAttributeType
+
+            if fileType == .typeDirectory {
+                return try partialResult + (regularFileByteCount(inDirectory: url) ?? 0)
+            }
+
+            if fileType == .typeRegular {
+                let size = attributes[.size] as? NSNumber
+                return partialResult + (size?.int64Value ?? 0)
+            }
+
+            return partialResult
+        }
+    }
+
+    func regularFileByteCount(inDirectory directoryURL: URL) throws -> Int64? {
+        let childURLs = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil
+        )
+
+        return try regularFileByteCount(in: childURLs)
+    }
+
+    func isDirectory(_ url: URL) -> Bool {
+        (try? fileManager.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType) == .typeDirectory
+    }
+}

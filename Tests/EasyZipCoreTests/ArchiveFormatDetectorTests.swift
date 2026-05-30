@@ -18,6 +18,14 @@ final class ArchiveFormatDetectorTests: XCTestCase {
         XCTAssertEqual(format, .sevenZip)
     }
 
+    func testDetectsRARByExtension() throws {
+        let detector = DefaultArchiveFormatDetector()
+
+        let format = try detector.detectFormat(for: URL(fileURLWithPath: "/tmp/example.RAR"))
+
+        XCTAssertEqual(format, .rar)
+    }
+
     func testDetectsTarByExtension() throws {
         let detector = DefaultArchiveFormatDetector()
 
@@ -65,10 +73,10 @@ final class ArchiveFormatDetectorTests: XCTestCase {
     func testThrowsForUnsupportedExtension() throws {
         let detector = DefaultArchiveFormatDetector()
 
-        let archiveURL = URL(fileURLWithPath: "/tmp/example.rar")
+        let archiveURL = URL(fileURLWithPath: "/tmp/example.iso")
 
         XCTAssertThrowsError(try detector.detectFormat(for: archiveURL)) { error in
-            XCTAssertEqual(error as? ArchiveError, .unsupportedFormat("rar"))
+            XCTAssertEqual(error as? ArchiveError, .unsupportedFormat("iso"))
         }
     }
 }

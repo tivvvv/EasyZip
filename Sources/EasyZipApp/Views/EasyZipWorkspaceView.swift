@@ -55,6 +55,7 @@ private struct WorkspaceToolbar: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 220)
+            .disabled(model.isRunning)
 
             Spacer()
 
@@ -63,12 +64,14 @@ private struct WorkspaceToolbar: View {
             } label: {
                 Label("添加", systemImage: "plus")
             }
+            .disabled(model.isRunning)
 
             Button {
                 model.chooseOutputDirectory()
             } label: {
                 Label("输出", systemImage: "folder")
             }
+            .disabled(model.isRunning)
 
             Button {
                 model.startOperation()
@@ -113,7 +116,7 @@ private struct FileQueueView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(model.selectedItems, id: \.self) { url in
-                            QueueRow(url: url) {
+                            QueueRow(url: url, isDisabled: model.isRunning) {
                                 model.removeItem(url)
                             }
                         }
@@ -144,6 +147,7 @@ private struct EmptyQueueView: View {
 
 private struct QueueRow: View {
     let url: URL
+    let isDisabled: Bool
     let removeAction: () -> Void
 
     var body: some View {
@@ -170,6 +174,7 @@ private struct QueueRow: View {
             }
             .buttonStyle(.borderless)
             .help("移除")
+            .disabled(isDisabled)
         }
         .padding(10)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -228,6 +233,7 @@ private struct DropZoneView: View {
                 }
             }
             .frame(height: 190)
+            .opacity(model.isRunning ? 0.65 : 1)
             .onDrop(
                 of: [UTType.fileURL.identifier],
                 isTargeted: $model.isDropTargeted,
@@ -255,6 +261,7 @@ private struct OptionsPanelView: View {
                     }
                 }
                 .frame(maxWidth: 190, alignment: .trailing)
+                .disabled(model.isRunning)
             }
 
             if model.mode == .compress {
@@ -267,17 +274,22 @@ private struct OptionsPanelView: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(width: 150)
+                    .disabled(model.isRunning)
                 }
 
                 LabeledContent("名称") {
                     TextField("归档文件", text: $model.archiveName)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 170)
+                        .disabled(model.isRunning)
                 }
 
                 Toggle("包含隐藏文件", isOn: $model.includeHiddenFiles)
+                    .disabled(model.isRunning)
                 Toggle("保留父目录", isOn: $model.preserveParentDirectory)
+                    .disabled(model.isRunning)
                 Toggle("保留元数据", isOn: $model.preserveMetadata)
+                    .disabled(model.isRunning)
             } else {
                 LabeledContent("冲突处理") {
                     Picker("冲突处理", selection: $model.overwritePolicy) {
@@ -287,7 +299,12 @@ private struct OptionsPanelView: View {
                     }
                     .labelsHidden()
                     .frame(width: 150)
+                    .disabled(model.isRunning)
                 }
+            }
+
+            if let taskResult = model.taskResult {
+                TaskResultView(model: model, result: taskResult)
             }
 
             Spacer()
@@ -295,6 +312,57 @@ private struct OptionsPanelView: View {
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct TaskResultView: View {
+    @ObservedObject var model: EasyZipAppModel
+    let result: TaskResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+
+            Text("任务结果")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            HStack(spacing: 8) {
+                Image(systemName: result.iconName)
+                    .foregroundStyle(resultColor)
+
+                Text(result.title)
+                    .font(.callout)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+            }
+
+            Text(result.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+
+            if result.outputURL != nil {
+                Button {
+                    model.revealOutputInFinder()
+                } label: {
+                    Label("定位输出", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!model.canRevealOutput)
+            }
+        }
+    }
+
+    private var resultColor: Color {
+        switch result.title {
+        case "压缩完成", "解压完成":
+            .green
+        case "操作失败":
+            .red
+        default:
+            .secondary
+        }
     }
 }
 
@@ -438,7 +506,7 @@ private struct ProgressDrawerView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("定位")
-                .disabled(model.outputDirectory == nil)
+                .disabled(!model.canRevealOutput)
             }
         }
         .padding(.horizontal, 18)

@@ -6,7 +6,7 @@ public struct LibArchiveEngine: ArchiveEngine {
 
     public let capabilities = ArchiveEngineCapabilities(
         readableFormats: Set(ArchiveFormat.allCases),
-        writableFormats: Set(ArchiveFormat.allCases)
+        writableFormats: Set(ArchiveFormat.allCases.filter { $0 != .rar })
     )
 
     private let bufferSize: Int
@@ -106,6 +106,7 @@ public struct LibArchiveEngine: ArchiveEngine {
                 rawEntry,
                 from: archive,
                 to: destinationURL,
+                baseURL: request.destinationURL,
                 options: request.options
             ) { byteCount in
                 completedByteCount += byteCount
@@ -146,9 +147,30 @@ public struct LibArchiveEngine: ArchiveEngine {
             throw ArchiveError.invalidSource(request.destinationURL)
         }
 
-        try prepareDestinationForCreation(request.destinationURL)
+        let destinationPlanner = CompressionDestinationPlanner()
+        try destinationPlanner.validate(
+            destinationURL: request.destinationURL,
+            sourceURLs: request.sourceURLs
+        )
 
-        let archive = try makeWriter(for: request)
+        let sourceItems = try makeSourceItems(for: request)
+        let temporaryDestinationURL = try destinationPlanner.makeTemporaryDestinationURL(
+            for: request.destinationURL
+        )
+        let writerRequest = CompressionRequest(
+            sourceURLs: request.sourceURLs,
+            destinationURL: temporaryDestinationURL,
+            format: request.format,
+            options: request.options
+        )
+        var didFinalizeDestination = false
+        defer {
+            if !didFinalizeDestination {
+                destinationPlanner.removeTemporaryDestination(temporaryDestinationURL)
+            }
+        }
+
+        let archive = try makeWriter(for: writerRequest)
         var didCloseArchive = false
         defer {
             if !didCloseArchive {
@@ -157,7 +179,6 @@ public struct LibArchiveEngine: ArchiveEngine {
             _ = archive_write_free(archive)
         }
 
-        let sourceItems = try makeSourceItems(for: request)
         let totalByteCount = sourceItems.reduce(Int64(0)) { partialResult, sourceItem in
             partialResult + sourceItem.byteCount
         }
@@ -202,6 +223,12 @@ public struct LibArchiveEngine: ArchiveEngine {
             operation: "close archive"
         )
         didCloseArchive = true
+
+        try destinationPlanner.finalizeTemporaryDestination(
+            temporaryDestinationURL,
+            destinationURL: request.destinationURL
+        )
+        didFinalizeDestination = true
 
         progress?(
             ArchiveProgress(
@@ -280,6 +307,16 @@ private extension LibArchiveEngine {
                 operation: "enable 7z reader"
             )
             try require(
+                archive_read_support_format_rar(archive),
+                archive: archive,
+                operation: "enable rar reader"
+            )
+            try require(
+                archive_read_support_format_rar5(archive),
+                archive: archive,
+                operation: "enable rar5 reader"
+            )
+            try require(
                 archive_read_support_format_tar(archive),
                 archive: archive,
                 operation: "enable tar reader"
@@ -339,6 +376,8 @@ private extension LibArchiveEngine {
                 archive: archive,
                 operation: "enable 7z writer"
             )
+        case .rar:
+            throw ArchiveError.unsupportedOperation(format: format, operation: .create)
         case .tar:
             try configureTarWriter(archive, filter: archive_write_add_filter_none, filterName: "none")
         case .tarGzip:
@@ -435,6 +474,7 @@ private extension LibArchiveEngine {
         _ rawEntry: OpaquePointer,
         from archive: OpaquePointer,
         to destinationURL: URL,
+        baseURL: URL,
         options: ExtractionOptions,
         onBytesWritten: (Int64) -> Void
     ) throws {
@@ -449,6 +489,12 @@ private extension LibArchiveEngine {
             try skipEntryData(in: archive)
             return
         }
+
+        try validateFilesystemDestination(
+            resolvedDestinationURL,
+            baseURL: baseURL,
+            shouldValidate: options.validateEntryPaths
+        )
 
         switch fileType {
         case LibArchiveFileType.directory:
@@ -589,6 +635,31 @@ private extension LibArchiveEngine {
         let components = normalizedTarget.split(separator: "/", omittingEmptySubsequences: false)
         guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
             throw ArchiveError.unsafeEntryPath(target)
+        }
+    }
+
+    func validateFilesystemDestination(
+        _ destinationURL: URL,
+        baseURL: URL,
+        shouldValidate: Bool
+    ) throws {
+        guard shouldValidate else {
+            return
+        }
+
+        let basePath = baseURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let parentPath = destinationURL
+            .deletingLastPathComponent()
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+
+        guard parentPath == basePath || parentPath.hasPrefix(basePath + "/") else {
+            throw ArchiveError.unsafeEntryPath(destinationURL.path)
+        }
+
+        guard !isSymbolicLink(destinationURL) else {
+            throw ArchiveError.unsafeEntryPath(destinationURL.path)
         }
     }
 
@@ -887,6 +958,10 @@ private extension LibArchiveEngine {
 
     func isHidden(_ url: URL) -> Bool {
         url.lastPathComponent.hasPrefix(".")
+    }
+
+    func isSymbolicLink(_ url: URL) -> Bool {
+        (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
     }
 
     func pathname(for rawEntry: OpaquePointer) throws -> String {
