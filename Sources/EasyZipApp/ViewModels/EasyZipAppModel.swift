@@ -7,12 +7,21 @@ import UniformTypeIdentifiers
 final class EasyZipAppModel: ObservableObject {
     @Published var mode: WorkspaceMode = .compress {
         didSet {
+            resetProgressIfIdle()
             refreshArchivePreview()
         }
     }
     @Published var selectedItems: [URL] = []
-    @Published var outputDirectory: URL?
-    @Published var selectedFormat: ArchiveFormat = .zip
+    @Published var outputDirectory: URL? {
+        didSet {
+            resetProgressIfIdle()
+        }
+    }
+    @Published var selectedFormat: ArchiveFormat = .zip {
+        didSet {
+            resetProgressIfIdle()
+        }
+    }
     @Published var overwritePolicy: OverwritePolicy = .rename
     @Published var archiveName = "归档文件"
     @Published var includeHiddenFiles = false
@@ -86,12 +95,14 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         selectedItems = mergedURLs
+        resetProgressIfIdle()
         updateDefaultArchiveName()
         refreshArchivePreview()
     }
 
     func removeItem(_ url: URL) {
         selectedItems.removeAll { $0 == url }
+        resetProgressIfIdle()
         updateDefaultArchiveName()
         refreshArchivePreview()
     }
@@ -100,6 +111,7 @@ final class EasyZipAppModel: ObservableObject {
         selectedItems.removeAll()
         archiveEntries.removeAll()
         previewState = "未选择归档"
+        resetProgressIfIdle()
         updateDefaultArchiveName()
     }
 
@@ -205,6 +217,15 @@ final class EasyZipAppModel: ObservableObject {
         } else {
             archiveName = "批量归档"
         }
+    }
+
+    private func resetProgressIfIdle() {
+        guard !isRunning else {
+            return
+        }
+
+        progressFraction = 0
+        progressText = "空闲"
     }
 
     private func refreshArchivePreview() {
