@@ -11,6 +11,10 @@ let package = Package(
         .library(
             name: "EasyZipCore",
             targets: ["EasyZipCore"]
+        ),
+        .executable(
+            name: "EasyZipApp",
+            targets: ["EasyZipApp"]
         )
     ],
     targets: [
@@ -22,6 +26,10 @@ let package = Package(
         ),
         .testTarget(
             name: "EasyZipCoreTests",
+            dependencies: ["EasyZipCore"]
+        ),
+        .executableTarget(
+            name: "EasyZipApp",
             dependencies: ["EasyZipCore"]
         )
     ]
