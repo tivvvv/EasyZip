@@ -56,7 +56,10 @@ EasyZipCore
 - `LibArchiveEngine` 已实现 `.zip` 和 `.7z` 的列表读取, 解压和压缩.
 - `ArchiveService.makeDefault()` 默认注册 `LibArchiveEngine`.
 - 解压默认通过 `ArchivePathValidator` 校验条目路径.
-- 当前不支持加密归档, 分卷归档和覆盖时自动重命名.
+- 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`.
+- 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
+- 已识别加密归档并返回 `ArchiveError.encryptedArchive`, 但暂不支持输入密码.
+- 当前不支持分卷归档.
 
 ## 设计原则
 

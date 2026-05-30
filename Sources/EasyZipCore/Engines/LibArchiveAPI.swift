@@ -116,6 +116,15 @@ func archive_entry_symlink_utf8(_ entry: OpaquePointer?) -> UnsafePointer<CChar>
 @_silgen_name("archive_entry_symlink")
 func archive_entry_symlink(_ entry: OpaquePointer?) -> UnsafePointer<CChar>?
 
+@_silgen_name("archive_entry_is_data_encrypted")
+func archive_entry_is_data_encrypted(_ entry: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_entry_is_encrypted")
+func archive_entry_is_encrypted(_ entry: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_entry_is_metadata_encrypted")
+func archive_entry_is_metadata_encrypted(_ entry: OpaquePointer?) -> Int32
+
 @_silgen_name("archive_entry_copy_symlink")
 func archive_entry_copy_symlink(
     _ entry: OpaquePointer?,

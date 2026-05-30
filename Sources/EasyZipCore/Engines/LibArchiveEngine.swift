@@ -43,6 +43,7 @@ public struct LibArchiveEngine: ArchiveEngine {
                 throw engineFailure(archive: archive, operation: "read header")
             }
 
+            try validateEntryIsNotEncrypted(rawEntry, archiveURL: archiveURL)
             entries.append(makeArchiveEntry(from: rawEntry))
             try skipEntryData(in: archive)
         }
@@ -59,6 +60,7 @@ public struct LibArchiveEngine: ArchiveEngine {
             withIntermediateDirectories: true
         )
 
+        let totalByteCount = try await totalUncompressedByteCount(in: request.archiveURL)
         let archive = try makeReader(for: request.archiveURL)
         defer {
             _ = archive_read_close(archive)
@@ -66,13 +68,14 @@ public struct LibArchiveEngine: ArchiveEngine {
         }
 
         let pathValidator = ArchivePathValidator(destinationURL: request.destinationURL)
-        var completedCount: Int64 = 0
+        var completedByteCount: Int64 = 0
         var rawEntry: OpaquePointer?
 
         progress?(
             ArchiveProgress(
                 phase: .extracting,
-                completedUnitCount: completedCount
+                completedUnitCount: completedByteCount,
+                totalUnitCount: totalByteCount
             )
         )
 
@@ -90,6 +93,7 @@ public struct LibArchiveEngine: ArchiveEngine {
                 throw engineFailure(archive: archive, operation: "read header")
             }
 
+            try validateEntryIsNotEncrypted(rawEntry, archiveURL: request.archiveURL)
             let entryPath = try pathname(for: rawEntry)
             let destinationURL = try destinationURL(
                 for: entryPath,
@@ -103,13 +107,23 @@ public struct LibArchiveEngine: ArchiveEngine {
                 from: archive,
                 to: destinationURL,
                 options: request.options
-            )
+            ) { byteCount in
+                completedByteCount += byteCount
+                progress?(
+                    ArchiveProgress(
+                        phase: .extracting,
+                        completedUnitCount: completedByteCount,
+                        totalUnitCount: totalByteCount,
+                        currentEntryPath: entryPath
+                    )
+                )
+            }
 
-            completedCount += 1
             progress?(
                 ArchiveProgress(
                     phase: .extracting,
-                    completedUnitCount: completedCount,
+                    completedUnitCount: completedByteCount,
+                    totalUnitCount: totalByteCount,
                     currentEntryPath: entryPath
                 )
             )
@@ -118,7 +132,8 @@ public struct LibArchiveEngine: ArchiveEngine {
         progress?(
             ArchiveProgress(
                 phase: .finishing,
-                completedUnitCount: completedCount
+                completedUnitCount: completedByteCount,
+                totalUnitCount: totalByteCount
             )
         )
     }
@@ -143,27 +158,39 @@ public struct LibArchiveEngine: ArchiveEngine {
         }
 
         let sourceItems = try makeSourceItems(for: request)
-        var completedCount: Int64 = 0
+        let totalByteCount = sourceItems.reduce(Int64(0)) { partialResult, sourceItem in
+            partialResult + sourceItem.byteCount
+        }
+        var completedByteCount: Int64 = 0
 
         progress?(
             ArchiveProgress(
                 phase: .compressing,
-                completedUnitCount: completedCount,
-                totalUnitCount: Int64(sourceItems.count)
+                completedUnitCount: completedByteCount,
+                totalUnitCount: totalByteCount
             )
         )
 
         for sourceItem in sourceItems {
             try Task.checkCancellation()
 
-            try write(sourceItem, to: archive, options: request.options)
-            completedCount += 1
+            try write(sourceItem, to: archive, options: request.options) { byteCount in
+                completedByteCount += byteCount
+                progress?(
+                    ArchiveProgress(
+                        phase: .compressing,
+                        completedUnitCount: completedByteCount,
+                        totalUnitCount: totalByteCount,
+                        currentEntryPath: sourceItem.archivePath
+                    )
+                )
+            }
 
             progress?(
                 ArchiveProgress(
                     phase: .compressing,
-                    completedUnitCount: completedCount,
-                    totalUnitCount: Int64(sourceItems.count),
+                    completedUnitCount: completedByteCount,
+                    totalUnitCount: totalByteCount,
                     currentEntryPath: sourceItem.archivePath
                 )
             )
@@ -179,8 +206,8 @@ public struct LibArchiveEngine: ArchiveEngine {
         progress?(
             ArchiveProgress(
                 phase: .finishing,
-                completedUnitCount: completedCount,
-                totalUnitCount: Int64(sourceItems.count)
+                completedUnitCount: completedByteCount,
+                totalUnitCount: totalByteCount
             )
         )
     }
@@ -195,6 +222,33 @@ private extension LibArchiveEngine {
         var fileType: FileAttributeType? {
             attributes[.type] as? FileAttributeType
         }
+
+        var byteCount: Int64 {
+            guard fileType == .typeRegular else {
+                return 0
+            }
+
+            let size = attributes[.size] as? NSNumber
+            return size?.int64Value ?? 0
+        }
+    }
+
+    func totalUncompressedByteCount(in archiveURL: URL) async throws -> Int64? {
+        let entries = try await listEntries(in: archiveURL)
+        let fileEntries = entries.filter { entry in
+            if case .file = entry.kind {
+                return true
+            }
+
+            return false
+        }
+        let fileSizes = fileEntries.compactMap(\.uncompressedSize)
+
+        guard fileSizes.count == fileEntries.count else {
+            return nil
+        }
+
+        return fileSizes.reduce(0, +)
     }
 
     func makeReader(for archiveURL: URL) throws -> OpaquePointer {
@@ -309,6 +363,14 @@ private extension LibArchiveEngine {
         )
     }
 
+    func validateEntryIsNotEncrypted(_ rawEntry: OpaquePointer, archiveURL: URL) throws {
+        guard archive_entry_is_encrypted(rawEntry) == 0,
+              archive_entry_is_data_encrypted(rawEntry) == 0,
+              archive_entry_is_metadata_encrypted(rawEntry) == 0 else {
+            throw ArchiveError.encryptedArchive(archiveURL)
+        }
+    }
+
     func entryKind(fileType: UInt32, symlinkTarget: String?) -> ArchiveEntryKind {
         switch fileType {
         case LibArchiveFileType.regular:
@@ -339,16 +401,36 @@ private extension LibArchiveEngine {
         _ rawEntry: OpaquePointer,
         from archive: OpaquePointer,
         to destinationURL: URL,
-        options: ExtractionOptions
+        options: ExtractionOptions,
+        onBytesWritten: (Int64) -> Void
     ) throws {
-        switch archive_entry_filetype(rawEntry) {
+        let fileType = archive_entry_filetype(rawEntry)
+        let resolvedDestinationURL = try destinationURLByResolvingCollision(
+            destinationURL,
+            fileType: fileType,
+            options: options
+        )
+
+        guard let resolvedDestinationURL else {
+            try skipEntryData(in: archive)
+            return
+        }
+
+        switch fileType {
         case LibArchiveFileType.directory:
-            try createDirectory(at: destinationURL)
+            try createDirectory(at: resolvedDestinationURL)
+            try applyMetadata(from: rawEntry, to: resolvedDestinationURL, options: options)
             try skipEntryData(in: archive)
         case LibArchiveFileType.symbolicLink:
-            try extractSymbolicLink(rawEntry, from: archive, to: destinationURL, options: options)
+            try extractSymbolicLink(rawEntry, from: archive, to: resolvedDestinationURL)
         case LibArchiveFileType.regular:
-            try extractFile(rawEntry, from: archive, to: destinationURL, options: options)
+            try extractFile(
+                rawEntry,
+                from: archive,
+                to: resolvedDestinationURL,
+                options: options,
+                onBytesWritten: onBytesWritten
+            )
         default:
             try skipEntryData(in: archive)
         }
@@ -358,13 +440,9 @@ private extension LibArchiveEngine {
         _ rawEntry: OpaquePointer,
         from archive: OpaquePointer,
         to destinationURL: URL,
-        options: ExtractionOptions
+        options: ExtractionOptions,
+        onBytesWritten: (Int64) -> Void
     ) throws {
-        guard try shouldWrite(to: destinationURL, options: options) else {
-            try skipEntryData(in: archive)
-            return
-        }
-
         try createDirectory(at: destinationURL.deletingLastPathComponent())
         guard fileManager.createFile(atPath: destinationURL.path, contents: nil) else {
             throw ArchiveError.invalidDestination(destinationURL)
@@ -378,6 +456,8 @@ private extension LibArchiveEngine {
         var buffer = [UInt8](repeating: 0, count: bufferSize)
 
         while true {
+            try Task.checkCancellation()
+
             let readCount = archive_read_data(archive, &buffer, buffer.count)
             if readCount == 0 {
                 break
@@ -388,18 +468,16 @@ private extension LibArchiveEngine {
             }
 
             fileHandle.write(Data(buffer.prefix(readCount)))
+            onBytesWritten(Int64(readCount))
         }
 
-        if options.preservePermissions {
-            try applyPermissions(from: rawEntry, to: destinationURL)
-        }
+        try applyMetadata(from: rawEntry, to: destinationURL, options: options)
     }
 
     func extractSymbolicLink(
         _ rawEntry: OpaquePointer,
         from archive: OpaquePointer,
-        to destinationURL: URL,
-        options: ExtractionOptions
+        to destinationURL: URL
     ) throws {
         guard let target = stringValue(archive_entry_symlink_utf8(rawEntry))
             ?? stringValue(archive_entry_symlink(rawEntry)) else {
@@ -409,32 +487,61 @@ private extension LibArchiveEngine {
 
         try validateSymbolicLinkTarget(target)
 
-        guard try shouldWrite(to: destinationURL, options: options) else {
-            try skipEntryData(in: archive)
-            return
-        }
-
         try createDirectory(at: destinationURL.deletingLastPathComponent())
         try fileManager.createSymbolicLink(atPath: destinationURL.path, withDestinationPath: target)
         try skipEntryData(in: archive)
     }
 
-    func shouldWrite(to destinationURL: URL, options: ExtractionOptions) throws -> Bool {
-        guard fileManager.fileExists(atPath: destinationURL.path) else {
-            return true
+    func destinationURLByResolvingCollision(
+        _ destinationURL: URL,
+        fileType: UInt32,
+        options: ExtractionOptions
+    ) throws -> URL? {
+        var isDirectory = ObjCBool(false)
+
+        guard fileManager.fileExists(atPath: destinationURL.path, isDirectory: &isDirectory) else {
+            return destinationURL
         }
 
         switch options.overwritePolicy {
         case .overwrite:
+            if fileType == LibArchiveFileType.directory && isDirectory.boolValue {
+                return destinationURL
+            }
+
             try fileManager.removeItem(at: destinationURL)
-            return true
+            return destinationURL
         case .skip, .ask:
-            return false
+            return nil
         case .rename:
-            throw ArchiveError.engineFailure(
-                engine: identifier,
-                message: "Rename overwrite policy is not supported by LibArchiveEngine."
-            )
+            if fileType == LibArchiveFileType.directory && isDirectory.boolValue {
+                return destinationURL
+            }
+
+            return uniqueDestinationURL(for: destinationURL)
+        }
+    }
+
+    func uniqueDestinationURL(for destinationURL: URL) -> URL {
+        let parentURL = destinationURL.deletingLastPathComponent()
+        let pathExtension = destinationURL.pathExtension
+        let baseName = pathExtension.isEmpty
+            ? destinationURL.lastPathComponent
+            : destinationURL.deletingPathExtension().lastPathComponent
+
+        var suffix = 2
+
+        while true {
+            let fileName = pathExtension.isEmpty
+                ? "\(baseName) \(suffix)"
+                : "\(baseName) \(suffix).\(pathExtension)"
+            let candidateURL = parentURL.appendingPathComponent(fileName)
+
+            if !fileManager.fileExists(atPath: candidateURL.path) {
+                return candidateURL
+            }
+
+            suffix += 1
         }
     }
 
@@ -455,16 +562,29 @@ private extension LibArchiveEngine {
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
-    func applyPermissions(from rawEntry: OpaquePointer, to destinationURL: URL) throws {
+    func applyMetadata(
+        from rawEntry: OpaquePointer,
+        to destinationURL: URL,
+        options: ExtractionOptions
+    ) throws {
+        var attributes: [FileAttributeKey: Any] = [:]
         let permissions = archive_entry_perm(rawEntry)
-        guard permissions > 0 else {
+
+        if options.preservePermissions && permissions > 0 {
+            attributes[.posixPermissions] = NSNumber(value: permissions)
+        }
+
+        if archive_entry_mtime_is_set(rawEntry) != 0 {
+            attributes[.modificationDate] = Date(
+                timeIntervalSince1970: TimeInterval(archive_entry_mtime(rawEntry))
+            )
+        }
+
+        guard !attributes.isEmpty else {
             return
         }
 
-        try fileManager.setAttributes(
-            [.posixPermissions: NSNumber(value: permissions)],
-            ofItemAtPath: destinationURL.path
-        )
+        try fileManager.setAttributes(attributes, ofItemAtPath: destinationURL.path)
     }
 
     func prepareDestinationForCreation(_ destinationURL: URL) throws {
@@ -483,6 +603,8 @@ private extension LibArchiveEngine {
         var items: [SourceItem] = []
 
         for sourceURL in request.sourceURLs {
+            try Task.checkCancellation()
+
             guard fileManager.fileExists(atPath: sourceURL.path) else {
                 throw ArchiveError.invalidSource(sourceURL)
             }
@@ -531,6 +653,8 @@ private extension LibArchiveEngine {
         ).sorted { $0.lastPathComponent < $1.lastPathComponent }
 
         for childURL in childURLs {
+            try Task.checkCancellation()
+
             guard options.includeHiddenFiles || !isHidden(childURL) else {
                 continue
             }
@@ -605,7 +729,8 @@ private extension LibArchiveEngine {
     func write(
         _ sourceItem: SourceItem,
         to archive: OpaquePointer,
-        options: CompressionOptions
+        options: CompressionOptions,
+        onBytesWritten: (Int64) -> Void
     ) throws {
         guard let entry = archive_entry_new() else {
             throw ArchiveError.engineFailure(
@@ -626,7 +751,7 @@ private extension LibArchiveEngine {
         )
 
         if sourceItem.fileType == .typeRegular {
-            try writeFileData(from: sourceItem.fileURL, to: archive)
+            try writeFileData(from: sourceItem.fileURL, to: archive, onBytesWritten: onBytesWritten)
         }
 
         try require(
@@ -650,7 +775,8 @@ private extension LibArchiveEngine {
         )
         archive_entry_set_perm(entry, permissions)
 
-        if let modifiedAt = sourceItem.attributes[.modificationDate] as? Date {
+        if options.preserveMetadata,
+           let modifiedAt = sourceItem.attributes[.modificationDate] as? Date {
             archive_entry_set_mtime(entry, Int64(modifiedAt.timeIntervalSince1970), 0)
         }
 
@@ -673,13 +799,19 @@ private extension LibArchiveEngine {
         }
     }
 
-    func writeFileData(from fileURL: URL, to archive: OpaquePointer) throws {
+    func writeFileData(
+        from fileURL: URL,
+        to archive: OpaquePointer,
+        onBytesWritten: (Int64) -> Void
+    ) throws {
         let fileHandle = try FileHandle(forReadingFrom: fileURL)
         defer {
             fileHandle.closeFile()
         }
 
         while true {
+            try Task.checkCancellation()
+
             let data = fileHandle.readData(ofLength: bufferSize)
             if data.isEmpty {
                 break
@@ -694,6 +826,8 @@ private extension LibArchiveEngine {
                 guard writtenCount >= 0 else {
                     throw engineFailure(archive: archive, operation: "write file data")
                 }
+
+                onBytesWritten(Int64(buffer.count))
             }
         }
     }
