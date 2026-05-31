@@ -8,6 +8,7 @@ final class EasyZipAppModel: ObservableObject {
     @Published var mode: WorkspaceMode = .compress {
         didSet {
             resetProgressIfIdle()
+            refreshExternalToolAvailability()
             refreshArchivePreview()
         }
     }
@@ -15,11 +16,13 @@ final class EasyZipAppModel: ObservableObject {
     @Published var outputDirectory: URL? {
         didSet {
             resetProgressIfIdle()
+            refreshExternalToolAvailability()
         }
     }
     @Published var selectedFormat: ArchiveFormat = .zip {
         didSet {
             resetProgressIfIdle()
+            refreshExternalToolAvailability()
         }
     }
     @Published var overwritePolicy: OverwritePolicy = .rename
@@ -34,10 +37,12 @@ final class EasyZipAppModel: ObservableObject {
     @Published var isRunning = false
     @Published var isDropTargeted = false
     @Published var taskResult: TaskResult?
+    @Published private(set) var rarCommandAvailability = RARCommandResolver().availability()
     @Published var alert: AppAlert?
 
     private var operationTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
+    private let rarCommandResolver = RARCommandResolver()
 
     var primaryActionTitle: String {
         mode == .compress ? "开始压缩" : "开始解压"
@@ -45,6 +50,28 @@ final class EasyZipAppModel: ObservableObject {
 
     var canRun: Bool {
         !selectedItems.isEmpty && !isRunning
+    }
+
+    var formatRequirementStatus: (title: String, detail: String, iconName: String, isBlocking: Bool)? {
+        guard requiresRARCommand else {
+            return nil
+        }
+
+        if let executableURL = rarCommandAvailability.executableURL {
+            return (
+                title: "RAR 命令可用",
+                detail: executableURL.path,
+                iconName: "checkmark.circle",
+                isBlocking: false
+            )
+        }
+
+        return (
+            title: "需要安装 rar 命令",
+            detail: "安装 RAR 命令行工具后可创建 .rar 归档",
+            iconName: "exclamationmark.triangle",
+            isBlocking: true
+        )
     }
 
     var outputLabel: String {
@@ -151,6 +178,13 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
+        refreshExternalToolAvailability()
+
+        guard requiredExternalToolsAreAvailable else {
+            reportMissingRequiredExternalTool()
+            return
+        }
+
         isRunning = true
         progressFraction = 0
         progressText = mode == .compress ? "准备压缩" : "准备解压"
@@ -217,6 +251,14 @@ final class EasyZipAppModel: ObservableObject {
         operationTask?.cancel()
     }
 
+    func refreshExternalToolAvailability() {
+        guard !isRunning else {
+            return
+        }
+
+        rarCommandAvailability = rarCommandResolver.availability()
+    }
+
     func revealOutputInFinder() {
         guard let revealTargetURL else {
             return
@@ -250,6 +292,30 @@ final class EasyZipAppModel: ObservableObject {
 
     private var revealTargetURL: URL? {
         taskResult?.outputURL ?? outputDirectory
+    }
+
+    private var requiresRARCommand: Bool {
+        mode == .compress && selectedFormat == .rar
+    }
+
+    private var requiredExternalToolsAreAvailable: Bool {
+        !requiresRARCommand || rarCommandAvailability.isAvailable
+    }
+
+    private func reportMissingRequiredExternalTool() {
+        let message = userFacingErrorMessage(
+            for: ArchiveError.externalToolUnavailable(RARCommandResolver.toolName)
+        )
+
+        taskResult = TaskResult(
+            title: "RAR 压缩不可用",
+            detail: message,
+            outputURL: nil,
+            iconName: "exclamationmark.triangle"
+        )
+        progressFraction = 0
+        progressText = "等待外部工具"
+        alert = AppAlert(title: "RAR 压缩不可用", message: message)
     }
 
     private func updateDefaultArchiveName() {
@@ -516,7 +582,7 @@ final class EasyZipAppModel: ObservableObject {
         case .encryptedArchive(let url):
             return "暂不支持加密归档: \(url.path)"
         case .externalToolUnavailable(let toolName):
-            return "未找到外部工具: \(toolName)。RAR 压缩需要安装 RAR 命令行工具"
+            return "未找到外部工具: \(toolName), RAR 压缩需要安装 RAR 命令行工具"
         case .unsafeEntryPath(let path):
             return "归档内包含不安全路径: \(path)"
         case .engineFailure:

@@ -47,6 +47,7 @@ EasyZipCore
     ArchiveService
     ArchiveEngineRegistry
     DefaultArchiveFormatDetector
+    RARCommandResolver
 
   Security
     ArchivePathValidator
@@ -62,12 +63,14 @@ EasyZipCore
   解压和压缩.
 - `LibArchiveEngine` 已实现 `.rar` 的列表读取和解压.
 - `RARCommandCompressionEngine` 已实现 `.rar` 创建的外部命令适配; 未安装 `rar` 时返回明确错误.
+- `RARCommandResolver` 集中检测外部 `rar` 命令, UI 和 RAR 压缩引擎共用同一判断.
 - `ArchiveFormat` 集中维护格式主扩展名, 别名扩展名和 UI 显示名.
 - `ArchiveService.makeDefault()` 默认注册 `LibArchiveEngine` 和 `RARCommandCompressionEngine`.
 - 解压默认通过 `ArchivePathValidator` 校验条目路径.
 - 解压写入前会校验目标父目录的符号链接解析结果, 避免通过既有符号链接逃逸.
 - 压缩写入先生成临时归档, 成功关闭后再替换最终目标.
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`.
+- 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
 - 已识别加密归档并返回 `ArchiveError.encryptedArchive`, 但暂不支持输入密码.
 - 当前不支持分卷归档.

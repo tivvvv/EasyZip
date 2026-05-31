@@ -9,14 +9,18 @@ public struct RARCommandCompressionEngine: ArchiveEngine {
         writableFormats: [.rar]
     )
 
-    private let executableURL: URL?
+    private let commandResolver: RARCommandResolver
 
     private var fileManager: FileManager {
         .default
     }
 
-    public init(executableURL: URL? = nil) {
-        self.executableURL = executableURL
+    public init(commandResolver: RARCommandResolver = RARCommandResolver()) {
+        self.commandResolver = commandResolver
+    }
+
+    public init(executableURL: URL?) {
+        self.commandResolver = RARCommandResolver(executableURL: executableURL)
     }
 
     public func listEntries(in archiveURL: URL) async throws -> [ArchiveEntry] {
@@ -48,7 +52,7 @@ public struct RARCommandCompressionEngine: ArchiveEngine {
             sourceURLs: request.sourceURLs
         )
 
-        let executableURL = try resolvedExecutableURL()
+        let executableURL = try commandResolver.executableURL()
         let temporaryDestinationURL = try destinationPlanner.makeTemporaryDestinationURL(
             for: request.destinationURL
         )
@@ -95,38 +99,6 @@ public struct RARCommandCompressionEngine: ArchiveEngine {
 }
 
 private extension RARCommandCompressionEngine {
-    func resolvedExecutableURL() throws -> URL {
-        if let executableURL {
-            guard fileManager.isExecutableFile(atPath: executableURL.path) else {
-                throw ArchiveError.externalToolUnavailable("rar")
-            }
-
-            return executableURL
-        }
-
-        let candidatePaths = [
-            "/opt/homebrew/bin/rar",
-            "/usr/local/bin/rar",
-            "/usr/bin/rar"
-        ]
-
-        for path in candidatePaths where fileManager.isExecutableFile(atPath: path) {
-            return URL(fileURLWithPath: path)
-        }
-
-        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for directory in pathValue.split(separator: ":").map(String.init) {
-            let candidateURL = URL(fileURLWithPath: directory)
-                .appendingPathComponent("rar")
-
-            if fileManager.isExecutableFile(atPath: candidateURL.path) {
-                return candidateURL
-            }
-        }
-
-        throw ArchiveError.externalToolUnavailable("rar")
-    }
-
     func makeArguments(
         for request: CompressionRequest,
         temporaryDestinationURL: URL
@@ -194,7 +166,7 @@ private extension RARCommandCompressionEngine {
         do {
             try process.run()
         } catch {
-            throw ArchiveError.externalToolUnavailable("rar")
+            throw ArchiveError.externalToolUnavailable(RARCommandResolver.toolName)
         }
 
         process.waitUntilExit()

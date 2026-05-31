@@ -277,6 +277,12 @@ private struct OptionsPanelView: View {
                     .disabled(model.isRunning)
                 }
 
+                if let status = model.formatRequirementStatus {
+                    FormatRequirementStatusView(status: status) {
+                        model.refreshExternalToolAvailability()
+                    }
+                }
+
                 LabeledContent("名称") {
                     TextField("归档文件", text: $model.archiveName)
                         .textFieldStyle(.roundedBorder)
@@ -312,6 +318,38 @@ private struct OptionsPanelView: View {
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct FormatRequirementStatusView: View {
+    let status: (title: String, detail: String, iconName: String, isBlocking: Bool)
+    let refreshAction: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: status.iconName)
+                .foregroundStyle(status.isBlocking ? .orange : .green)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(status.title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+
+                Text(status.detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            Button(action: refreshAction) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("重新检测")
+        }
     }
 }
 
