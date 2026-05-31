@@ -11,8 +11,17 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case conflictRequiresDecision(URL)
     case unsupportedEntryType(path: String, type: String)
     case unsafeEntryPath(String)
+    case extractionResourceLimitExceeded(ExtractionResourceLimitViolation)
     case engineFailure(engine: String, message: String)
     case cancelled
+}
+
+/// 解压资源限制违规详情.
+public enum ExtractionResourceLimitViolation: Equatable, Sendable {
+    case entryCount(limit: Int, actual: Int)
+    case totalUncompressedSize(limit: Int64, actual: Int64)
+    case singleFileUncompressedSize(path: String, limit: Int64, actual: Int64)
+    case directoryDepth(path: String, limit: Int, actual: Int)
 }
 
 extension ArchiveError: CustomStringConvertible {
@@ -36,6 +45,8 @@ extension ArchiveError: CustomStringConvertible {
             "Unsupported archive entry type \(type): \(path)"
         case .unsafeEntryPath(let path):
             "Unsafe archive entry path: \(path)"
+        case .extractionResourceLimitExceeded(let violation):
+            "Extraction resource limit exceeded: \(violation)"
         case .engineFailure(let engine, let message):
             "Archive engine \(engine) failed: \(message)"
         case .cancelled:

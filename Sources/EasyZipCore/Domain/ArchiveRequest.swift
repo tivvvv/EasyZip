@@ -23,6 +23,7 @@ public struct ExtractionOptions: Sendable {
     public let shouldCreateContainingDirectory: Bool
     public let preservePermissions: Bool
     public let validateEntryPaths: Bool
+    public let resourceLimits: ExtractionResourceLimits
     public let conflictResolver: ArchiveConflictResolver?
 
     public init(
@@ -30,13 +31,49 @@ public struct ExtractionOptions: Sendable {
         shouldCreateContainingDirectory: Bool = true,
         preservePermissions: Bool = true,
         validateEntryPaths: Bool = true,
+        resourceLimits: ExtractionResourceLimits = .default,
         conflictResolver: ArchiveConflictResolver? = nil
     ) {
         self.overwritePolicy = overwritePolicy
         self.shouldCreateContainingDirectory = shouldCreateContainingDirectory
         self.preservePermissions = preservePermissions
         self.validateEntryPaths = validateEntryPaths
+        self.resourceLimits = resourceLimits
         self.conflictResolver = conflictResolver
+    }
+}
+
+/// 解压资源限制.
+public struct ExtractionResourceLimits: Equatable, Sendable {
+    public static let `default` = ExtractionResourceLimits(
+        maxEntryCount: 100_000,
+        maxTotalUncompressedSize: 20 * 1024 * 1024 * 1024,
+        maxSingleFileUncompressedSize: 8 * 1024 * 1024 * 1024,
+        maxDirectoryDepth: 64
+    )
+
+    public static let unlimited = ExtractionResourceLimits(
+        maxEntryCount: nil,
+        maxTotalUncompressedSize: nil,
+        maxSingleFileUncompressedSize: nil,
+        maxDirectoryDepth: nil
+    )
+
+    public let maxEntryCount: Int?
+    public let maxTotalUncompressedSize: Int64?
+    public let maxSingleFileUncompressedSize: Int64?
+    public let maxDirectoryDepth: Int?
+
+    public init(
+        maxEntryCount: Int? = Self.default.maxEntryCount,
+        maxTotalUncompressedSize: Int64? = Self.default.maxTotalUncompressedSize,
+        maxSingleFileUncompressedSize: Int64? = Self.default.maxSingleFileUncompressedSize,
+        maxDirectoryDepth: Int? = Self.default.maxDirectoryDepth
+    ) {
+        self.maxEntryCount = maxEntryCount
+        self.maxTotalUncompressedSize = maxTotalUncompressedSize
+        self.maxSingleFileUncompressedSize = maxSingleFileUncompressedSize
+        self.maxDirectoryDepth = maxDirectoryDepth
     }
 }
 

@@ -615,10 +615,31 @@ final class EasyZipAppModel: ObservableObject {
             return "归档内包含暂不支持的条目类型: \(type), \(path)"
         case .unsafeEntryPath(let path):
             return "归档内包含不安全路径: \(path)"
+        case .extractionResourceLimitExceeded(let violation):
+            return Self.resourceLimitErrorMessage(for: violation)
         case .engineFailure:
             return "归档引擎执行失败"
         case .cancelled:
             return "任务已取消"
         }
+    }
+
+    private static func resourceLimitErrorMessage(
+        for violation: ExtractionResourceLimitViolation
+    ) -> String {
+        switch violation {
+        case .entryCount(let limit, let actual):
+            return "归档条目数量过多: \(actual), 最大允许 \(limit)"
+        case .totalUncompressedSize(let limit, let actual):
+            return "归档解压后体积过大: \(formatByteCount(actual)), 最大允许 \(formatByteCount(limit))"
+        case .singleFileUncompressedSize(let path, let limit, let actual):
+            return "归档内单个文件过大: \(path), \(formatByteCount(actual)), 最大允许 \(formatByteCount(limit))"
+        case .directoryDepth(let path, let limit, let actual):
+            return "归档目录层级过深: \(path), 当前 \(actual), 最大允许 \(limit)"
+        }
+    }
+
+    private static func formatByteCount(_ byteCount: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
     }
 }

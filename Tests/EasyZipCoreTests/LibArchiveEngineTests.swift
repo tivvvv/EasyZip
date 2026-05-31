@@ -631,6 +631,92 @@ final class LibArchiveEngineTests: XCTestCase {
         }
     }
 
+    func testExtractRejectsArchiveWhenEntryCountExceedsLimit() async throws {
+        try await assertExtractRejectsResourceLimit(
+            entries: [
+                RawArchiveEntry(
+                    path: "one.txt",
+                    fileType: LibArchiveFileType.regular,
+                    data: Data("one".utf8)
+                ),
+                RawArchiveEntry(
+                    path: "two.txt",
+                    fileType: LibArchiveFileType.regular,
+                    data: Data("two".utf8)
+                )
+            ],
+            limits: ExtractionResourceLimits(
+                maxEntryCount: 1,
+                maxTotalUncompressedSize: nil,
+                maxSingleFileUncompressedSize: nil,
+                maxDirectoryDepth: nil
+            ),
+            expectedViolation: .entryCount(limit: 1, actual: 2)
+        )
+    }
+
+    func testExtractRejectsArchiveWhenTotalUncompressedSizeExceedsLimit() async throws {
+        try await assertExtractRejectsResourceLimit(
+            entries: [
+                RawArchiveEntry(
+                    path: "one.txt",
+                    fileType: LibArchiveFileType.regular,
+                    data: Data("one".utf8)
+                ),
+                RawArchiveEntry(
+                    path: "two.txt",
+                    fileType: LibArchiveFileType.regular,
+                    data: Data("two".utf8)
+                )
+            ],
+            limits: ExtractionResourceLimits(
+                maxEntryCount: nil,
+                maxTotalUncompressedSize: 5,
+                maxSingleFileUncompressedSize: nil,
+                maxDirectoryDepth: nil
+            ),
+            expectedViolation: .totalUncompressedSize(limit: 5, actual: 6)
+        )
+    }
+
+    func testExtractRejectsArchiveWhenSingleFileSizeExceedsLimit() async throws {
+        try await assertExtractRejectsResourceLimit(
+            entries: [
+                RawArchiveEntry(
+                    path: "large.bin",
+                    fileType: LibArchiveFileType.regular,
+                    data: Data(repeating: 1, count: 8)
+                )
+            ],
+            limits: ExtractionResourceLimits(
+                maxEntryCount: nil,
+                maxTotalUncompressedSize: nil,
+                maxSingleFileUncompressedSize: 4,
+                maxDirectoryDepth: nil
+            ),
+            expectedViolation: .singleFileUncompressedSize(path: "large.bin", limit: 4, actual: 8)
+        )
+    }
+
+    func testExtractRejectsArchiveWhenDirectoryDepthExceedsLimit() async throws {
+        try await assertExtractRejectsResourceLimit(
+            entries: [
+                RawArchiveEntry(
+                    path: "a/b/c/file.txt",
+                    fileType: LibArchiveFileType.regular,
+                    data: Data("deep".utf8)
+                )
+            ],
+            limits: ExtractionResourceLimits(
+                maxEntryCount: nil,
+                maxTotalUncompressedSize: nil,
+                maxSingleFileUncompressedSize: nil,
+                maxDirectoryDepth: 2
+            ),
+            expectedViolation: .directoryDepth(path: "a/b/c/file.txt", limit: 2, actual: 3)
+        )
+    }
+
     func testCreateReportsByteProgress() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -820,6 +906,45 @@ private extension LibArchiveEngineTests {
         XCTAssertTrue(isDirectory(emptyDirectoryURL))
         XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: symlinkURL.path), "hello.txt")
         try assertMetadata(for: helloURL)
+    }
+
+    func assertExtractRejectsResourceLimit(
+        entries: [RawArchiveEntry],
+        limits: ExtractionResourceLimits,
+        expectedViolation: ExtractionResourceLimitViolation,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let archiveURL = workspaceURL.appendingPathComponent("resource-limit.tar")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        try makeRawTarArchive(at: archiveURL, entries: entries)
+
+        do {
+            try await engine.extract(
+                ExtractionRequest(
+                    archiveURL: archiveURL,
+                    destinationURL: outputURL,
+                    options: .init(
+                        overwritePolicy: .overwrite,
+                        shouldCreateContainingDirectory: false,
+                        resourceLimits: limits
+                    )
+                )
+            )
+            XCTFail("Expected resource limit error.", file: file, line: line)
+        } catch ArchiveError.extractionResourceLimitExceeded(let violation) {
+            XCTAssertEqual(violation, expectedViolation, file: file, line: line)
+            XCTAssertFalse(fileManager.fileExists(atPath: outputURL.path), file: file, line: line)
+        } catch {
+            XCTFail("Unexpected error: \(error)", file: file, line: line)
+        }
     }
 
     func makeWorkspaceURL() throws -> URL {

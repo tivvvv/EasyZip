@@ -56,13 +56,25 @@ public struct LibArchiveEngine: ArchiveEngine {
         progress: ArchiveProgressHandler? = nil
     ) async throws {
         let destinationRootURL = extractionRootURL(for: request)
+        progress?(
+            ArchiveProgress(
+                phase: .scanning,
+                completedUnitCount: 0
+            )
+        )
+
+        let extractionPlan = try await scanExtractionPlan(
+            in: request.archiveURL,
+            destinationRootURL: destinationRootURL,
+            options: request.options
+        )
 
         try fileManager.createDirectory(
             at: destinationRootURL,
             withIntermediateDirectories: true
         )
 
-        let totalByteCount = try await totalUncompressedByteCount(in: request.archiveURL)
+        let totalByteCount = extractionPlan.totalUncompressedByteCount
         let archive = try makeReader(for: request.archiveURL)
         defer {
             _ = archive_read_close(archive)
@@ -103,6 +115,7 @@ public struct LibArchiveEngine: ArchiveEngine {
                 validator: pathValidator,
                 shouldValidate: request.options.validateEntryPaths
             )
+            var completedEntryByteCount: Int64 = 0
 
             try extractEntry(
                 rawEntry,
@@ -110,18 +123,29 @@ public struct LibArchiveEngine: ArchiveEngine {
                 to: destinationURL,
                 baseURL: destinationRootURL,
                 entryPath: entryPath,
-                options: request.options
-            ) { byteCount in
-                completedByteCount += byteCount
-                progress?(
-                    ArchiveProgress(
-                        phase: .extracting,
-                        completedUnitCount: completedByteCount,
-                        totalUnitCount: totalByteCount,
-                        currentEntryPath: entryPath
+                options: request.options,
+                onBytesWillWrite: { byteCount in
+                    try validateResourceLimitsBeforeWriting(
+                        byteCount: byteCount,
+                        entryPath: entryPath,
+                        currentEntryByteCount: completedEntryByteCount,
+                        completedByteCount: completedByteCount,
+                        limits: request.options.resourceLimits
                     )
-                )
-            }
+                },
+                onBytesWritten: { byteCount in
+                    completedEntryByteCount += byteCount
+                    completedByteCount += byteCount
+                    progress?(
+                        ArchiveProgress(
+                            phase: .extracting,
+                            completedUnitCount: completedByteCount,
+                            totalUnitCount: totalByteCount,
+                            currentEntryPath: entryPath
+                        )
+                    )
+                }
+            )
 
             progress?(
                 ArchiveProgress(
@@ -263,22 +287,88 @@ private extension LibArchiveEngine {
         }
     }
 
-    func totalUncompressedByteCount(in archiveURL: URL) async throws -> Int64? {
-        let entries = try await listEntries(in: archiveURL)
-        let fileEntries = entries.filter { entry in
-            if case .file = entry.kind {
-                return true
+    struct ExtractionPlan {
+        let totalUncompressedByteCount: Int64?
+    }
+
+    func scanExtractionPlan(
+        in archiveURL: URL,
+        destinationRootURL: URL,
+        options: ExtractionOptions
+    ) async throws -> ExtractionPlan {
+        let archive = try makeReader(for: archiveURL)
+        defer {
+            _ = archive_read_close(archive)
+            _ = archive_read_free(archive)
+        }
+
+        let pathValidator = ArchivePathValidator(destinationURL: destinationRootURL)
+        var entryCount = 0
+        var totalUncompressedByteCount: Int64 = 0
+        var hasUnknownUncompressedSize = false
+        var rawEntry: OpaquePointer?
+
+        while true {
+            try Task.checkCancellation()
+
+            let status = archive_read_next_header(archive, &rawEntry)
+            if status == LibArchiveStatus.eof {
+                break
             }
 
-            return false
-        }
-        let fileSizes = fileEntries.compactMap(\.uncompressedSize)
+            try require(status, archive: archive, operation: "read header")
 
-        guard fileSizes.count == fileEntries.count else {
-            return nil
+            guard let rawEntry else {
+                throw engineFailure(archive: archive, operation: "read header")
+            }
+
+            try validateEntryIsNotEncrypted(rawEntry, archiveURL: archiveURL)
+
+            let entryPath = try pathname(for: rawEntry)
+            let fileType = archive_entry_filetype(rawEntry)
+            entryCount += 1
+
+            try validateEntryCount(entryCount, limits: options.resourceLimits)
+            if options.validateEntryPaths {
+                _ = try pathValidator.validatedDestination(for: entryPath)
+            }
+            try validateDirectoryDepth(
+                entryPath: entryPath,
+                fileType: fileType,
+                limits: options.resourceLimits
+            )
+            try validateSupportedEntryForExtraction(
+                rawEntry,
+                entryPath: entryPath,
+                fileType: fileType
+            )
+            try validateSymbolicLinkTargetIfNeeded(rawEntry, fileType: fileType)
+
+            if fileType == LibArchiveFileType.regular {
+                if let entrySize = try uncompressedSize(for: rawEntry, entryPath: entryPath) {
+                    try validateSingleFileSize(
+                        entrySize,
+                        entryPath: entryPath,
+                        limits: options.resourceLimits
+                    )
+                    totalUncompressedByteCount = try checkedLimitedResourceSizeSum(
+                        totalUncompressedByteCount,
+                        entrySize,
+                        limit: options.resourceLimits.maxTotalUncompressedSize
+                    ) { limit, actual in
+                        .totalUncompressedSize(limit: limit, actual: actual)
+                    }
+                } else {
+                    hasUnknownUncompressedSize = true
+                }
+            }
+
+            try skipEntryData(in: archive)
         }
 
-        return fileSizes.reduce(0, +)
+        return ExtractionPlan(
+            totalUncompressedByteCount: hasUnknownUncompressedSize ? nil : totalUncompressedByteCount
+        )
     }
 
     func extractionRootURL(for request: ExtractionRequest) -> URL {
@@ -576,6 +666,7 @@ private extension LibArchiveEngine {
         baseURL: URL,
         entryPath: String,
         options: ExtractionOptions,
+        onBytesWillWrite: (Int64) throws -> Void,
         onBytesWritten: (Int64) -> Void
     ) throws {
         let fileType = archive_entry_filetype(rawEntry)
@@ -616,6 +707,7 @@ private extension LibArchiveEngine {
                 from: archive,
                 to: resolvedDestinationURL,
                 options: options,
+                onBytesWillWrite: onBytesWillWrite,
                 onBytesWritten: onBytesWritten
             )
         default:
@@ -638,6 +730,80 @@ private extension LibArchiveEngine {
                 type: entryTypeName(for: fileType)
             )
         }
+    }
+
+    func validateEntryCount(_ entryCount: Int, limits: ExtractionResourceLimits) throws {
+        guard let limit = limits.maxEntryCount, entryCount > limit else {
+            return
+        }
+
+        throw ArchiveError.extractionResourceLimitExceeded(
+            .entryCount(limit: limit, actual: entryCount)
+        )
+    }
+
+    func validateDirectoryDepth(
+        entryPath: String,
+        fileType: UInt32,
+        limits: ExtractionResourceLimits
+    ) throws {
+        guard let limit = limits.maxDirectoryDepth else {
+            return
+        }
+
+        let actualDepth = directoryDepth(entryPath: entryPath, fileType: fileType)
+        guard actualDepth <= limit else {
+            throw ArchiveError.extractionResourceLimitExceeded(
+                .directoryDepth(path: entryPath, limit: limit, actual: actualDepth)
+            )
+        }
+    }
+
+    func validateSingleFileSize(
+        _ byteCount: Int64,
+        entryPath: String,
+        limits: ExtractionResourceLimits
+    ) throws {
+        guard let limit = limits.maxSingleFileUncompressedSize, byteCount > limit else {
+            return
+        }
+
+        throw ArchiveError.extractionResourceLimitExceeded(
+            .singleFileUncompressedSize(path: entryPath, limit: limit, actual: byteCount)
+        )
+    }
+
+    func validateResourceLimitsBeforeWriting(
+        byteCount: Int64,
+        entryPath: String,
+        currentEntryByteCount: Int64,
+        completedByteCount: Int64,
+        limits: ExtractionResourceLimits
+    ) throws {
+        _ = try checkedLimitedResourceSizeSum(
+            currentEntryByteCount,
+            byteCount,
+            limit: limits.maxSingleFileUncompressedSize
+        ) { limit, actual in
+            .singleFileUncompressedSize(path: entryPath, limit: limit, actual: actual)
+        }
+        _ = try checkedLimitedResourceSizeSum(
+            completedByteCount,
+            byteCount,
+            limit: limits.maxTotalUncompressedSize
+        ) { limit, actual in
+            .totalUncompressedSize(limit: limit, actual: actual)
+        }
+    }
+
+    func validateSymbolicLinkTargetIfNeeded(_ rawEntry: OpaquePointer, fileType: UInt32) throws {
+        guard fileType == LibArchiveFileType.symbolicLink,
+              let target = stringValue(archive_entry_symlink_utf8(rawEntry))
+                ?? stringValue(archive_entry_symlink(rawEntry)) else {
+            return
+        }
+
+        try validateSymbolicLinkTarget(target)
     }
 
     func hardLinkTarget(for rawEntry: OpaquePointer) -> String? {
@@ -671,11 +837,69 @@ private extension LibArchiveEngine {
         }
     }
 
+    func uncompressedSize(for rawEntry: OpaquePointer, entryPath: String) throws -> Int64? {
+        guard archive_entry_size_is_set(rawEntry) != 0 else {
+            return nil
+        }
+
+        let size = archive_entry_size(rawEntry)
+        guard size >= 0 else {
+            throw ArchiveError.engineFailure(
+                engine: identifier,
+                message: "Archive entry has invalid size: \(entryPath)"
+            )
+        }
+
+        return size
+    }
+
+    func directoryDepth(entryPath: String, fileType: UInt32) -> Int {
+        let normalizedPath = entryPath.replacingOccurrences(of: "\\", with: "/")
+        let components = normalizedPath.split(separator: "/", omittingEmptySubsequences: true)
+
+        guard fileType != LibArchiveFileType.directory else {
+            return components.count
+        }
+
+        return max(components.count - 1, 0)
+    }
+
+    func checkedLimitedResourceSizeSum(
+        _ current: Int64,
+        _ addition: Int64,
+        limit: Int64?,
+        violation: (Int64, Int64) -> ExtractionResourceLimitViolation
+    ) throws -> Int64 {
+        let result = current.addingReportingOverflow(addition)
+        guard !result.overflow else {
+            if let limit {
+                throw ArchiveError.extractionResourceLimitExceeded(
+                    violation(limit, Int64.max)
+                )
+            }
+
+            throw ArchiveError.engineFailure(
+                engine: identifier,
+                message: "Archive entry size overflow."
+            )
+        }
+
+        let actual = result.partialValue
+        if let limit, actual > limit {
+            throw ArchiveError.extractionResourceLimitExceeded(
+                violation(limit, actual)
+            )
+        }
+
+        return actual
+    }
+
     func extractFile(
         _ rawEntry: OpaquePointer,
         from archive: OpaquePointer,
         to destinationURL: URL,
         options: ExtractionOptions,
+        onBytesWillWrite: (Int64) throws -> Void,
         onBytesWritten: (Int64) -> Void
     ) throws {
         try createDirectory(at: destinationURL.deletingLastPathComponent())
@@ -690,20 +914,26 @@ private extension LibArchiveEngine {
 
         var buffer = [UInt8](repeating: 0, count: bufferSize)
 
-        while true {
-            try Task.checkCancellation()
+        do {
+            while true {
+                try Task.checkCancellation()
 
-            let readCount = archive_read_data(archive, &buffer, buffer.count)
-            if readCount == 0 {
-                break
+                let readCount = archive_read_data(archive, &buffer, buffer.count)
+                if readCount == 0 {
+                    break
+                }
+
+                guard readCount > 0 else {
+                    throw engineFailure(archive: archive, operation: "read file data")
+                }
+
+                try onBytesWillWrite(Int64(readCount))
+                fileHandle.write(Data(buffer.prefix(readCount)))
+                onBytesWritten(Int64(readCount))
             }
-
-            guard readCount > 0 else {
-                throw engineFailure(archive: archive, operation: "read file data")
-            }
-
-            fileHandle.write(Data(buffer.prefix(readCount)))
-            onBytesWritten(Int64(readCount))
+        } catch {
+            try? fileManager.removeItem(at: destinationURL)
+            throw error
         }
 
         try applyMetadata(from: rawEntry, to: destinationURL, options: options)
