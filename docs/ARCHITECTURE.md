@@ -82,7 +82,10 @@ EasyZipCore
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; `ask` 需要 resolver 给出明确决策.
 - 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
-- AppDelegate 管理菜单栏图标, 按需创建任务工作台窗口.
+- AppDelegate 管理菜单栏图标和轻量状态面板, 按需创建任务工作台窗口.
+- 菜单栏状态面板和任务工作台共用同一个 `EasyZipAppModel`, 因此进度, 结果和最近记录保持同步.
+- `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和最近输出目录.
+- `TaskCompletionNotifier` 在成功完成任务后发送 macOS 系统通知.
 - Finder Sync extension 打包在 `Contents/PlugIns`, 通过 `easyzip://` URL scheme 把 Finder 选择传回主 app.
 - `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.

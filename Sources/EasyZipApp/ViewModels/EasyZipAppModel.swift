@@ -38,6 +38,8 @@ final class EasyZipAppModel: ObservableObject {
     @Published var isDropTargeted = false
     @Published var taskResult: TaskResult?
     @Published private(set) var rarCommandAvailability = RARCommandResolver().availability()
+    @Published private(set) var recentTasks = RecentArchiveStore.loadTasks()
+    @Published private(set) var recentOutputDirectories = RecentArchiveStore.loadOutputDirectories()
     @Published var alert: AppAlert?
 
     private var operationTask: Task<Void, Never>?
@@ -121,8 +123,9 @@ final class EasyZipAppModel: ObservableObject {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
 
-        if panel.runModal() == .OK {
-            outputDirectory = panel.url
+        if panel.runModal() == .OK, let url = panel.url {
+            outputDirectory = url
+            recordRecentOutputDirectory(url)
         }
     }
 
@@ -411,18 +414,22 @@ final class EasyZipAppModel: ObservableObject {
         progressFraction = 1
         progressText = result.title
         taskResult = result
+        recordRecentTask(result)
+        TaskCompletionNotifier.send(result)
         refreshArchivePreview()
     }
 
     private func cancelOperationResult() {
         isRunning = false
         progressText = "已取消"
-        taskResult = TaskResult(
+        let result = TaskResult(
             title: "已取消",
             detail: "任务没有完成",
             outputURL: nil,
             iconName: "xmark.circle"
         )
+        taskResult = result
+        recordRecentTask(result)
         refreshArchivePreview()
     }
 
@@ -430,13 +437,46 @@ final class EasyZipAppModel: ObservableObject {
         isRunning = false
         progressText = "失败"
         let message = userFacingErrorMessage(for: error)
-        taskResult = TaskResult(
+        let result = TaskResult(
             title: "操作失败",
             detail: message,
             outputURL: nil,
             iconName: "exclamationmark.triangle"
         )
+        taskResult = result
+        recordRecentTask(result)
         alert = AppAlert(title: "操作失败", message: message)
+    }
+
+    private func recordRecentTask(_ result: TaskResult) {
+        let task = RecentArchiveTask(result: result)
+        recentTasks.insert(task, at: 0)
+        recentTasks = Array(recentTasks.prefix(RecentArchiveStore.maxTaskCount))
+        RecentArchiveStore.saveTasks(recentTasks)
+
+        if let outputURL = result.outputURL {
+            recordRecentOutputDirectory(outputDirectory(for: outputURL))
+        }
+    }
+
+    private func recordRecentOutputDirectory(_ url: URL) {
+        let standardizedURL = url.standardizedFileURL
+        recentOutputDirectories.removeAll { $0.standardizedFileURL.path == standardizedURL.path }
+        recentOutputDirectories.insert(standardizedURL, at: 0)
+        recentOutputDirectories = Array(
+            recentOutputDirectories.prefix(RecentArchiveStore.maxOutputDirectoryCount)
+        )
+        RecentArchiveStore.saveOutputDirectories(recentOutputDirectories)
+    }
+
+    private func outputDirectory(for outputURL: URL) -> URL {
+        var isDirectory = ObjCBool(false)
+        if FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return outputURL
+        }
+
+        return outputURL.deletingLastPathComponent()
     }
 
     private static func compress(

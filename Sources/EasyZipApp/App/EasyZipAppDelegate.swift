@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import EasyZipCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -6,15 +7,20 @@ import UniformTypeIdentifiers
 @MainActor
 final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
+    private var statusPopover: NSPopover?
     private var workspaceWindow: NSWindow?
-    private var workspaceModel: EasyZipAppModel?
+    private let workspaceModel = EasyZipAppModel()
+    private var cancellables: Set<AnyCancellable> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
         NSApplication.shared.servicesProvider = self
         NSUpdateDynamicServices()
+        TaskCompletionNotifier.requestAuthorization()
         installStatusItem()
         installMainMenu()
+        observeStatusModel()
+        updateStatusItem()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -29,12 +35,11 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
 
         workspaceWindow = nil
-        workspaceModel = nil
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender === workspaceWindow,
-              workspaceModel?.isRunning == true else {
+              workspaceModel.isRunning else {
             return true
         }
 
@@ -43,15 +48,31 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     @objc private func openWorkspaceFromMenu() {
+        closeStatusPanel()
         showWorkspace()
     }
 
     @objc private func chooseItemsForCompression() {
+        closeStatusPanel()
         chooseItems(mode: .compress)
     }
 
     @objc private func chooseItemsForExtraction() {
+        closeStatusPanel()
         chooseItems(mode: .extract)
+    }
+
+    @objc private func toggleStatusPanel(_ sender: Any?) {
+        guard let button = statusItem?.button else {
+            return
+        }
+
+        if statusPopover?.isShown == true {
+            closeStatusPanel()
+            return
+        }
+
+        showStatusPanel(relativeTo: button)
     }
 
     @objc(compressSelection:userData:error:)
@@ -89,33 +110,121 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 accessibilityDescription: "易压缩"
             )
             button.image?.isTemplate = true
+            button.imagePosition = .imageLeading
+            button.target = self
+            button.action = #selector(toggleStatusPanel(_:))
         }
 
-        let menu = NSMenu(title: "易压缩")
-        menu.addItem(statusMenuItem(title: "打开易压缩", action: #selector(openWorkspaceFromMenu)))
-        menu.addItem(.separator())
-        menu.addItem(statusMenuItem(title: "压缩文件...", action: #selector(chooseItemsForCompression)))
-        menu.addItem(statusMenuItem(title: "解压归档...", action: #selector(chooseItemsForExtraction)))
-        menu.addItem(.separator())
-        menu.addItem(
-            NSMenuItem(
-                title: "退出易压缩",
-                action: #selector(NSApplication.terminate(_:)),
-                keyEquivalent: "q"
-            )
-        )
-
-        item.menu = menu
         statusItem = item
     }
 
-    private func statusMenuItem(title: String, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        return item
+    private func observeStatusModel() {
+        Publishers.CombineLatest4(
+            workspaceModel.$isRunning,
+            workspaceModel.$progressFraction,
+            workspaceModel.$progressText,
+            workspaceModel.$taskResult
+        )
+        .sink { [weak self] _, _, _, _ in
+            Task { @MainActor in
+                self?.updateStatusItem()
+            }
+        }
+        .store(in: &cancellables)
+    }
+
+    private func updateStatusItem() {
+        guard let item = statusItem,
+              let button = item.button else {
+            return
+        }
+
+        if workspaceModel.isRunning {
+            item.length = NSStatusItem.variableLength
+            button.title = statusItemProgressTitle()
+            button.contentTintColor = .controlAccentColor
+        } else {
+            item.length = NSStatusItem.squareLength
+            button.title = ""
+            button.contentTintColor = nil
+        }
+    }
+
+    private func statusItemProgressTitle() -> String {
+        let percent = Int((workspaceModel.progressFraction * 100).rounded(.down))
+
+        guard percent > 0 else {
+            return " 处理中"
+        }
+
+        return " \(min(percent, 100))%"
+    }
+
+    private func showStatusPanel(relativeTo button: NSStatusBarButton) {
+        let popover = statusPopover ?? makeStatusPopover()
+        statusPopover = popover
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func closeStatusPanel() {
+        statusPopover?.performClose(nil)
+    }
+
+    private func makeStatusPopover() -> NSPopover {
+        let actions = MenuBarPanelActions(
+            openWorkspace: { [weak self] in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    self?.showWorkspace()
+                }
+            },
+            chooseCompression: { [weak self] in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    self?.chooseItems(mode: .compress)
+                }
+            },
+            chooseExtraction: { [weak self] in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    self?.chooseItems(mode: .extract)
+                }
+            },
+            revealURL: { [weak self] url in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            },
+            openURL: { [weak self] url in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    NSWorkspace.shared.open(url)
+                }
+            },
+            quit: { [weak self] in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    NSApplication.shared.terminate(nil)
+                }
+            }
+        )
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 340, height: 520)
+        popover.contentViewController = NSHostingController(
+            rootView: EasyZipMenuBarPanelView(model: workspaceModel, actions: actions)
+        )
+
+        return popover
     }
 
     private func chooseItems(mode: WorkspaceMode) {
+        guard !workspaceModel.isRunning else {
+            showWorkspace()
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.title = mode == .compress ? "选择要压缩的项目" : "选择要解压的归档"
         panel.message = mode == .compress ? "可以选择文件或文件夹" : "请选择支持的归档文件"
@@ -187,22 +296,13 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         mode: WorkspaceMode? = nil,
         fileURLs: [URL] = []
     ) {
-        let model: EasyZipAppModel
-
-        if let existingModel = workspaceModel {
-            model = existingModel
-        } else {
-            model = EasyZipAppModel()
-            workspaceModel = model
-        }
-
         if let mode {
-            model.prepareExternalSelection(mode: mode, fileURLs: fileURLs)
+            workspaceModel.prepareExternalSelection(mode: mode, fileURLs: fileURLs)
         }
 
         if workspaceWindow == nil {
             let hostingController = NSHostingController(
-                rootView: EasyZipWorkspaceView(model: model)
+                rootView: EasyZipWorkspaceView(model: workspaceModel)
                     .frame(minWidth: 920, minHeight: 620)
             )
             let window = NSWindow(
