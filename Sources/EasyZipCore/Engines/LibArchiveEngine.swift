@@ -494,13 +494,23 @@ private extension LibArchiveEngine {
             archive_entry_pathname(rawEntry)
         ) ?? ""
 
+        let hardLinkTarget = stringValue(
+            archive_entry_hardlink_utf8(rawEntry)
+        ) ?? stringValue(
+            archive_entry_hardlink(rawEntry)
+        )
+
         let symlinkTarget = stringValue(
             archive_entry_symlink_utf8(rawEntry)
         ) ?? stringValue(
             archive_entry_symlink(rawEntry)
         )
 
-        let kind = entryKind(fileType: archive_entry_filetype(rawEntry), symlinkTarget: symlinkTarget)
+        let kind = entryKind(
+            fileType: archive_entry_filetype(rawEntry),
+            hardLinkTarget: hardLinkTarget,
+            symlinkTarget: symlinkTarget
+        )
         let uncompressedSize = archive_entry_size_is_set(rawEntry) == 0
             ? nil
             : archive_entry_size(rawEntry)
@@ -525,7 +535,15 @@ private extension LibArchiveEngine {
         }
     }
 
-    func entryKind(fileType: UInt32, symlinkTarget: String?) -> ArchiveEntryKind {
+    func entryKind(
+        fileType: UInt32,
+        hardLinkTarget: String?,
+        symlinkTarget: String?
+    ) -> ArchiveEntryKind {
+        if hardLinkTarget != nil {
+            return .hardLink(target: hardLinkTarget)
+        }
+
         switch fileType {
         case LibArchiveFileType.regular:
             return .file
@@ -561,6 +579,12 @@ private extension LibArchiveEngine {
         onBytesWritten: (Int64) -> Void
     ) throws {
         let fileType = archive_entry_filetype(rawEntry)
+        try validateSupportedEntryForExtraction(
+            rawEntry,
+            entryPath: entryPath,
+            fileType: fileType
+        )
+
         let resolvedDestinationURL = try destinationURLByResolvingCollision(
             destinationURL,
             entryPath: entryPath,
@@ -596,6 +620,54 @@ private extension LibArchiveEngine {
             )
         default:
             try skipEntryData(in: archive)
+        }
+    }
+
+    func validateSupportedEntryForExtraction(
+        _ rawEntry: OpaquePointer,
+        entryPath: String,
+        fileType: UInt32
+    ) throws {
+        if hardLinkTarget(for: rawEntry) != nil {
+            throw ArchiveError.unsupportedEntryType(path: entryPath, type: "hard link")
+        }
+
+        guard isSupportedExtractionFileType(fileType) else {
+            throw ArchiveError.unsupportedEntryType(
+                path: entryPath,
+                type: entryTypeName(for: fileType)
+            )
+        }
+    }
+
+    func hardLinkTarget(for rawEntry: OpaquePointer) -> String? {
+        stringValue(archive_entry_hardlink_utf8(rawEntry))
+            ?? stringValue(archive_entry_hardlink(rawEntry))
+    }
+
+    func isSupportedExtractionFileType(_ fileType: UInt32) -> Bool {
+        switch fileType {
+        case LibArchiveFileType.directory,
+             LibArchiveFileType.symbolicLink,
+             LibArchiveFileType.regular:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func entryTypeName(for fileType: UInt32) -> String {
+        switch fileType {
+        case LibArchiveFileType.fifo:
+            return "fifo"
+        case LibArchiveFileType.characterDevice:
+            return "character device"
+        case LibArchiveFileType.blockDevice:
+            return "block device"
+        case LibArchiveFileType.socket:
+            return "socket"
+        default:
+            return "unknown"
         }
     }
 
@@ -756,9 +828,40 @@ private extension LibArchiveEngine {
             throw ArchiveError.unsafeEntryPath(target)
         }
 
+        guard !normalizedTarget.contains("\0"),
+              !containsUnsafeControlCharacter(in: normalizedTarget) else {
+            throw ArchiveError.unsafeEntryPath(target)
+        }
+
         let components = normalizedTarget.split(separator: "/", omittingEmptySubsequences: false)
         guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
             throw ArchiveError.unsafeEntryPath(target)
+        }
+
+        if let firstComponent = components.first,
+           firstComponent.count == 2,
+           firstComponent.last == ":",
+           firstComponent.first?.isLetter == true {
+            throw ArchiveError.unsafeEntryPath(target)
+        }
+    }
+
+    func containsUnsafeControlCharacter(in path: String) -> Bool {
+        path.unicodeScalars.contains { scalar in
+            if CharacterSet.controlCharacters.contains(scalar) {
+                return true
+            }
+
+            return isBidirectionalControl(scalar)
+        }
+    }
+
+    func isBidirectionalControl(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x202A...0x202E, 0x2066...0x2069:
+            return true
+        default:
+            return false
         }
     }
 

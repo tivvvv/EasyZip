@@ -483,6 +483,154 @@ final class LibArchiveEngineTests: XCTestCase {
         }
     }
 
+    func testListEntriesMarksHardLink() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let archiveURL = workspaceURL.appendingPathComponent("hard-link.tar")
+        let engine = LibArchiveEngine()
+
+        try makeRawTarArchive(
+            at: archiveURL,
+            entries: [
+                RawArchiveEntry(
+                    path: "linked.txt",
+                    fileType: LibArchiveFileType.regular,
+                    hardLinkTarget: "original.txt"
+                )
+            ]
+        )
+
+        let entries = try await engine.listEntries(in: archiveURL)
+        let entry = try XCTUnwrap(entries.first)
+
+        XCTAssertEqual(entry.path, "linked.txt")
+        XCTAssertEqual(entry.kind, .hardLink(target: "original.txt"))
+    }
+
+    func testExtractRejectsHardLinkEntry() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let archiveURL = workspaceURL.appendingPathComponent("unsafe-hard-link.tar")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        try makeRawTarArchive(
+            at: archiveURL,
+            entries: [
+                RawArchiveEntry(
+                    path: "linked.txt",
+                    fileType: LibArchiveFileType.regular,
+                    hardLinkTarget: "../../outside.txt"
+                )
+            ]
+        )
+
+        do {
+            try await engine.extract(
+                ExtractionRequest(
+                    archiveURL: archiveURL,
+                    destinationURL: outputURL,
+                    options: .init(
+                        overwritePolicy: .overwrite,
+                        shouldCreateContainingDirectory: false
+                    )
+                )
+            )
+            XCTFail("Expected unsupported entry type error.")
+        } catch ArchiveError.unsupportedEntryType(let path, let type) {
+            XCTAssertEqual(path, "linked.txt")
+            XCTAssertEqual(type, "hard link")
+            XCTAssertFalse(fileManager.fileExists(atPath: outputURL.appendingPathComponent("linked.txt").path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testExtractRejectsSpecialFileEntry() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let archiveURL = workspaceURL.appendingPathComponent("special.tar")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        try makeRawTarArchive(
+            at: archiveURL,
+            entries: [
+                RawArchiveEntry(path: "pipe", fileType: LibArchiveFileType.fifo)
+            ]
+        )
+
+        do {
+            try await engine.extract(
+                ExtractionRequest(
+                    archiveURL: archiveURL,
+                    destinationURL: outputURL,
+                    options: .init(
+                        overwritePolicy: .overwrite,
+                        shouldCreateContainingDirectory: false
+                    )
+                )
+            )
+            XCTFail("Expected unsupported entry type error.")
+        } catch ArchiveError.unsupportedEntryType(let path, let type) {
+            XCTAssertEqual(path, "pipe")
+            XCTAssertEqual(type, "fifo")
+            XCTAssertFalse(fileManager.fileExists(atPath: outputURL.appendingPathComponent("pipe").path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testExtractRejectsUnsafeSymbolicLinkTarget() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let archiveURL = workspaceURL.appendingPathComponent("unsafe-symlink.tar")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        try makeRawTarArchive(
+            at: archiveURL,
+            entries: [
+                RawArchiveEntry(
+                    path: "link",
+                    fileType: LibArchiveFileType.symbolicLink,
+                    symlinkTarget: "folder/\u{202E}target"
+                )
+            ]
+        )
+
+        do {
+            try await engine.extract(
+                ExtractionRequest(
+                    archiveURL: archiveURL,
+                    destinationURL: outputURL,
+                    options: .init(
+                        overwritePolicy: .overwrite,
+                        shouldCreateContainingDirectory: false
+                    )
+                )
+            )
+            XCTFail("Expected unsafe symbolic link target error.")
+        } catch ArchiveError.unsafeEntryPath(let path) {
+            XCTAssertEqual(path, "folder/\u{202E}target")
+            XCTAssertFalse(fileManager.fileExists(atPath: outputURL.appendingPathComponent("link").path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testCreateReportsByteProgress() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -591,6 +739,28 @@ final class LibArchiveEngineTests: XCTestCase {
 }
 
 private extension LibArchiveEngineTests {
+    struct RawArchiveEntry {
+        let path: String
+        let fileType: UInt32
+        let data: Data?
+        let hardLinkTarget: String?
+        let symlinkTarget: String?
+
+        init(
+            path: String,
+            fileType: UInt32,
+            data: Data? = nil,
+            hardLinkTarget: String? = nil,
+            symlinkTarget: String? = nil
+        ) {
+            self.path = path
+            self.fileType = fileType
+            self.data = data
+            self.hardLinkTarget = hardLinkTarget
+            self.symlinkTarget = symlinkTarget
+        }
+    }
+
     func assertRoundTrip(format: ArchiveFormat, archiveName: String) async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -715,6 +885,99 @@ private extension LibArchiveEngineTests {
 
         XCTAssertEqual(permissions.intValue & 0o777, 0o640)
         XCTAssertEqual(modifiedAt.timeIntervalSince1970, fixtureModificationDate.timeIntervalSince1970, accuracy: 1)
+    }
+
+    func makeRawTarArchive(at archiveURL: URL, entries: [RawArchiveEntry]) throws {
+        guard let archive = archive_write_new() else {
+            throw ArchiveError.engineFailure(engine: "test", message: "Failed to allocate archive writer.")
+        }
+        defer {
+            _ = archive_write_free(archive)
+        }
+
+        try requireArchiveStatus(
+            archive_write_set_format_pax_restricted(archive),
+            archive: archive,
+            operation: "set tar writer"
+        )
+        try archiveURL.path.withCString { path in
+            try requireArchiveStatus(
+                archive_write_open_filename(archive, path),
+                archive: archive,
+                operation: "open archive writer"
+            )
+        }
+
+        for rawEntry in entries {
+            try writeRawEntry(rawEntry, to: archive)
+        }
+
+        try requireArchiveStatus(
+            archive_write_close(archive),
+            archive: archive,
+            operation: "close archive writer"
+        )
+    }
+
+    func writeRawEntry(_ rawEntry: RawArchiveEntry, to archive: OpaquePointer) throws {
+        guard let entry = archive_entry_new() else {
+            throw ArchiveError.engineFailure(engine: "test", message: "Failed to allocate archive entry.")
+        }
+        defer {
+            archive_entry_free(entry)
+        }
+
+        rawEntry.path.withCString { path in
+            archive_entry_copy_pathname(entry, path)
+        }
+        if let hardLinkTarget = rawEntry.hardLinkTarget {
+            hardLinkTarget.withCString { target in
+                archive_entry_copy_hardlink(entry, target)
+            }
+        }
+        if let symlinkTarget = rawEntry.symlinkTarget {
+            symlinkTarget.withCString { target in
+                archive_entry_copy_symlink(entry, target)
+            }
+        }
+
+        archive_entry_set_filetype(entry, rawEntry.fileType)
+        archive_entry_set_perm(entry, 0o644)
+        archive_entry_set_size(entry, Int64(rawEntry.data?.count ?? 0))
+
+        try requireArchiveStatus(
+            archive_write_header(archive, entry),
+            archive: archive,
+            operation: "write archive header"
+        )
+
+        if let data = rawEntry.data, !data.isEmpty {
+            let writtenCount = data.withUnsafeBytes { buffer in
+                archive_write_data(archive, buffer.baseAddress, data.count)
+            }
+
+            guard writtenCount == data.count else {
+                throw ArchiveError.engineFailure(engine: "test", message: "Failed to write archive data.")
+            }
+        }
+
+        try requireArchiveStatus(
+            archive_write_finish_entry(archive),
+            archive: archive,
+            operation: "finish archive entry"
+        )
+    }
+
+    func requireArchiveStatus(
+        _ status: Int32,
+        archive: OpaquePointer,
+        operation: String
+    ) throws {
+        guard status == LibArchiveStatus.ok else {
+            let message = archive_error_string(archive).map { String(cString: $0) }
+                ?? "Unknown libarchive error."
+            throw ArchiveError.engineFailure(engine: "test", message: "\(operation): \(message)")
+        }
     }
 
     func regularFileByteCount(in directoryURL: URL) throws -> Int64 {

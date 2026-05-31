@@ -6,9 +6,13 @@ enum LibArchiveStatus {
 }
 
 enum LibArchiveFileType {
+    static let fifo: UInt32 = 0o010000
+    static let characterDevice: UInt32 = 0o020000
     static let regular: UInt32 = 0o100000
+    static let blockDevice: UInt32 = 0o060000
     static let directory: UInt32 = 0o040000
     static let symbolicLink: UInt32 = 0o120000
+    static let socket: UInt32 = 0o140000
 }
 
 @_silgen_name("archive_error_string")
@@ -156,6 +160,12 @@ func archive_entry_symlink_utf8(_ entry: OpaquePointer?) -> UnsafePointer<CChar>
 @_silgen_name("archive_entry_symlink")
 func archive_entry_symlink(_ entry: OpaquePointer?) -> UnsafePointer<CChar>?
 
+@_silgen_name("archive_entry_hardlink_utf8")
+func archive_entry_hardlink_utf8(_ entry: OpaquePointer?) -> UnsafePointer<CChar>?
+
+@_silgen_name("archive_entry_hardlink")
+func archive_entry_hardlink(_ entry: OpaquePointer?) -> UnsafePointer<CChar>?
+
 @_silgen_name("archive_entry_is_data_encrypted")
 func archive_entry_is_data_encrypted(_ entry: OpaquePointer?) -> Int32
 
@@ -169,6 +179,12 @@ func archive_entry_is_metadata_encrypted(_ entry: OpaquePointer?) -> Int32
 func archive_entry_copy_symlink(
     _ entry: OpaquePointer?,
     _ symlink: UnsafePointer<CChar>?
+)
+
+@_silgen_name("archive_entry_copy_hardlink")
+func archive_entry_copy_hardlink(
+    _ entry: OpaquePointer?,
+    _ hardlink: UnsafePointer<CChar>?
 )
 
 @_silgen_name("archive_entry_filetype")

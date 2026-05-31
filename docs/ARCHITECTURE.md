@@ -69,6 +69,9 @@ EasyZipCore
 - `ArchiveService.makeDefault()` 默认注册 `LibArchiveEngine` 和 `RARCommandCompressionEngine`.
 - 解压默认通过 `ArchivePathValidator` 校验条目路径.
 - 解压写入前会校验目标父目录的符号链接解析结果, 避免通过既有符号链接逃逸.
+- `ArchivePathValidator` 会拒绝路径穿越, Windows drive path, 空组件, 控制字符和 Unicode 双向控制字符.
+- 解压阶段会拒绝 hard link, FIFO, socket, character device 和 block device.
+- 列表预览会标记 hard link, 但不会在解压阶段创建 hard link.
 - 解压默认创建与归档同名的外层目录, Core 可通过 `ExtractionOptions.shouldCreateContainingDirectory` 关闭.
 - 压缩写入先生成临时归档, 成功关闭后再替换最终目标.
 - libarchive 写入会透传 `CompressionOptions.compressionLevel`, `.tar` 无压缩时忽略该选项.
@@ -84,7 +87,8 @@ EasyZipCore
 - 每个底层库只出现在自己的 engine target 内, 避免 C 依赖污染业务代码.
 - 新格式优先通过新增 `ArchiveEngine` 实现接入, 不改 UI 流程.
 - 格式识别优先 magic number, 无签名或读取失败时回退扩展名.
-- 解压必须先做路径安全校验, 禁止绝对路径, `..`, Windows drive path 和符号链接逃逸.
+- 解压必须先做路径安全校验, 禁止绝对路径, `..`, Windows drive path, 控制字符和符号链接逃逸.
+- 解压只创建普通文件, 目录和安全相对符号链接, 其他条目类型默认拒绝.
 - 压缩任务和解压任务统一使用 request object, 避免方法参数越来越长.
 
 ## 第一期模块边界

@@ -594,6 +594,8 @@ final class EasyZipAppModel: ObservableObject {
             return "未找到外部工具: \(toolName), RAR 压缩需要安装 RAR 命令行工具"
         case .conflictRequiresDecision(let url):
             return "目标已存在, 需要选择冲突处理方式: \(url.path)"
+        case .unsupportedEntryType(let path, let type):
+            return "归档内包含暂不支持的条目类型: \(type), \(path)"
         case .unsafeEntryPath(let path):
             return "归档内包含不安全路径: \(path)"
         case .engineFailure:

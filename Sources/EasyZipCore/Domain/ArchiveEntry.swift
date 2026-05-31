@@ -33,5 +33,6 @@ public enum ArchiveEntryKind: Equatable, Sendable {
     case file
     case directory
     case symbolicLink(target: String?)
+    case hardLink(target: String?)
     case other
 }

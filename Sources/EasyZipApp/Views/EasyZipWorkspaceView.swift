@@ -455,6 +455,8 @@ private struct ArchivePreviewView: View {
             "folder"
         case .symbolicLink:
             "link"
+        case .hardLink:
+            "link.badge.plus"
         case .file:
             "doc"
         case .other:

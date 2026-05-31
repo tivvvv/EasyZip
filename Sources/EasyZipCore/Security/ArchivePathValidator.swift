@@ -25,6 +25,10 @@ public struct ArchivePathValidator: Sendable {
             throw ArchiveError.unsafeEntryPath(entryPath)
         }
 
+        guard !containsUnsafeControlCharacter(in: normalizedPath) else {
+            throw ArchiveError.unsafeEntryPath(entryPath)
+        }
+
         let components = normalizedPath
             .split(separator: "/", omittingEmptySubsequences: false)
             .map(String.init)
@@ -52,5 +56,24 @@ public struct ArchivePathValidator: Sendable {
         }
 
         return candidateURL
+    }
+
+    private func containsUnsafeControlCharacter(in path: String) -> Bool {
+        path.unicodeScalars.contains { scalar in
+            if CharacterSet.controlCharacters.contains(scalar) {
+                return true
+            }
+
+            return isBidirectionalControl(scalar)
+        }
+    }
+
+    private func isBidirectionalControl(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x202A...0x202E, 0x2066...0x2069:
+            return true
+        default:
+            return false
+        }
     }
 }
