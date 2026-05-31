@@ -89,6 +89,8 @@ EasyZipCore
 - `TaskCompletionNotifier` 在成功完成任务后发送 macOS 系统通知.
 - Finder Sync extension 打包在 `Contents/PlugIns`, 通过 `easyzip://` URL scheme 把 Finder 选择传回主 app.
 - `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.
+- Finder 和 Services 后台唤起会走统一外部选择策略, 空闲时同模式合并, 不同模式替换.
+- 任务运行中再次唤起会生成 `PendingExternalSelection`, 菜单栏面板和工作台同步展示并允许稍后应用.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
 - 已识别加密归档并返回 `ArchiveError.encryptedArchive`, 但暂不支持输入密码.
 - 当前不支持分卷归档.

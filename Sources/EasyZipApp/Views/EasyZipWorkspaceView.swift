@@ -13,6 +13,10 @@ struct EasyZipWorkspaceView: View {
         VStack(spacing: 0) {
             WorkspaceToolbar(model: model)
 
+            if let pendingSelection = model.pendingExternalSelection {
+                PendingExternalSelectionBanner(model: model, selection: pendingSelection)
+            }
+
             Divider()
 
             HStack(spacing: 0) {
@@ -35,6 +39,48 @@ struct EasyZipWorkspaceView: View {
                 dismissButton: .default(Text("确定"))
             )
         }
+    }
+}
+
+private struct PendingExternalSelectionBanner: View {
+    @ObservedObject var model: EasyZipAppModel
+    let selection: PendingExternalSelection
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "tray.and.arrow.down")
+                .foregroundStyle(.blue)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("已暂存新的\(selection.mode.rawValue)选择")
+                    .font(.callout)
+                    .fontWeight(.semibold)
+                Text("\(selection.itemCountText), \(model.isRunning ? "当前任务完成后可应用" : "现在可以应用")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                model.applyPendingExternalSelection()
+            } label: {
+                Label("应用", systemImage: "checkmark.circle")
+            }
+            .disabled(model.isRunning)
+
+            Button {
+                model.clearPendingExternalSelection()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("忽略")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Color.blue.opacity(0.08))
     }
 }
 

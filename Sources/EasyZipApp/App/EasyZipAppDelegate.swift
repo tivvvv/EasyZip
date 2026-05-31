@@ -221,10 +221,12 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     private func chooseItems(mode: WorkspaceMode) {
         guard !workspaceModel.isRunning else {
+            workspaceModel.noteSelectionBlocked(mode: mode)
             showWorkspace()
             return
         }
 
+        NSApplication.shared.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.title = mode == .compress ? "选择要压缩的项目" : "选择要解压的归档"
         panel.message = mode == .compress ? "可以选择文件或文件夹" : "请选择支持的归档文件"
@@ -319,7 +321,12 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             workspaceWindow = window
         }
 
+        if workspaceWindow?.isMiniaturized == true {
+            workspaceWindow?.deminiaturize(nil)
+        }
+
         workspaceWindow?.makeKeyAndOrderFront(nil)
+        workspaceWindow?.orderFrontRegardless()
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 

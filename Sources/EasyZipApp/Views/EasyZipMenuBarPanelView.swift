@@ -18,6 +18,10 @@ struct EasyZipMenuBarPanelView: View {
             header
             Divider()
             actionsRow
+            if let pendingSelection = model.pendingExternalSelection {
+                Divider()
+                pendingSelectionCard(pendingSelection)
+            }
             Divider()
             ScrollView {
                 VStack(spacing: 0) {
@@ -137,6 +141,49 @@ struct EasyZipMenuBarPanelView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private func pendingSelectionCard(_ selection: PendingExternalSelection) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "tray.and.arrow.down")
+                    .foregroundStyle(.blue)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("待处理选择")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text("\(selection.mode.rawValue) \(selection.itemCountText), \(dateText(selection.receivedAt))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    model.applyPendingExternalSelection()
+                } label: {
+                    Label("应用", systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isRunning)
+
+                Button {
+                    model.clearPendingExternalSelection()
+                } label: {
+                    Label("忽略", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
+
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(16)
+        .background(Color.blue.opacity(0.06))
     }
 
     private var statusTitle: String {

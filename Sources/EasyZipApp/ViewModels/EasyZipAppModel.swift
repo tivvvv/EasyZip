@@ -40,6 +40,7 @@ final class EasyZipAppModel: ObservableObject {
     @Published private(set) var rarCommandAvailability = RARCommandResolver().availability()
     @Published private(set) var recentTasks = RecentArchiveStore.loadTasks()
     @Published private(set) var recentOutputDirectories = RecentArchiveStore.loadOutputDirectories()
+    @Published private(set) var pendingExternalSelection: PendingExternalSelection?
     @Published var alert: AppAlert?
 
     private var operationTask: Task<Void, Never>?
@@ -90,9 +91,11 @@ final class EasyZipAppModel: ObservableObject {
 
     func chooseItems() {
         guard !isRunning else {
+            noteSelectionBlocked(mode: mode)
             return
         }
 
+        NSApplication.shared.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.title = mode == .compress ? "选择要压缩的项目" : "选择要解压的归档"
         panel.message = mode == .compress ? "可以选择文件或文件夹" : "请选择支持的归档文件"
@@ -111,9 +114,11 @@ final class EasyZipAppModel: ObservableObject {
 
     func chooseOutputDirectory() {
         guard !isRunning else {
+            alert = AppAlert(title: "任务进行中", message: "当前任务完成后再调整输出目录")
             return
         }
 
+        NSApplication.shared.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.title = "选择输出目录"
         panel.message = "任务结果将保存到这里"
@@ -141,13 +146,7 @@ final class EasyZipAppModel: ObservableObject {
 
             return ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent)
         }
-        var mergedURLs = selectedItems
-
-        for url in filteredURLs where !mergedURLs.contains(url) {
-            mergedURLs.append(url)
-        }
-
-        selectedItems = mergedURLs
+        selectedItems = uniqueFileURLs(selectedItems + filteredURLs)
         resetProgressIfIdle()
         updateDefaultArchiveName()
         refreshArchivePreview()
@@ -177,20 +176,108 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     func prepareExternalSelection(mode: WorkspaceMode, fileURLs: [URL]) {
-        guard !isRunning else {
-            alert = AppAlert(title: "任务进行中", message: "请等待当前任务完成后再添加文件")
+        let acceptedFileURLs = acceptableFileURLs(fileURLs, for: mode)
+
+        guard !acceptedFileURLs.isEmpty else {
+            alert = AppAlert(title: "没有可处理的文件", message: "请选择支持的文件后重试")
             return
         }
 
+        guard !isRunning else {
+            deferExternalSelection(mode: mode, fileURLs: acceptedFileURLs)
+            return
+        }
+
+        applyExternalSelection(mode: mode, fileURLs: acceptedFileURLs)
+    }
+
+    func applyPendingExternalSelection() {
+        guard let pendingExternalSelection, !isRunning else {
+            return
+        }
+
+        self.pendingExternalSelection = nil
+        applyExternalSelection(
+            mode: pendingExternalSelection.mode,
+            fileURLs: pendingExternalSelection.fileURLs
+        )
+    }
+
+    func clearPendingExternalSelection() {
+        pendingExternalSelection = nil
+    }
+
+    func noteSelectionBlocked(mode: WorkspaceMode) {
+        alert = AppAlert(
+            title: "任务进行中",
+            message: "当前任务完成后再选择\(mode.rawValue)文件"
+        )
+    }
+
+    private func applyExternalSelection(mode: WorkspaceMode, fileURLs: [URL]) {
+        let shouldMerge = self.mode == mode && !selectedItems.isEmpty
+
+        pendingExternalSelection = nil
         self.mode = mode
-        selectedItems.removeAll()
-        archiveEntries.removeAll()
-        previewState = mode == .extract ? "未选择归档" : "归档预览"
+
+        if !shouldMerge {
+            selectedItems.removeAll()
+            archiveEntries.removeAll()
+            previewState = mode == .extract ? "未选择归档" : "归档预览"
+        }
+
         addFileURLs(fileURLs)
 
-        if selectedItems.isEmpty {
-            alert = AppAlert(title: "没有可处理的文件", message: "请选择支持的文件后重试")
+        taskResult = TaskResult(
+            title: shouldMerge ? "已合并新选择" : "已载入新选择",
+            detail: "\(mode.rawValue)队列当前包含 \(selectedItems.count) 项",
+            outputURL: nil,
+            iconName: shouldMerge ? "plus.square.on.square" : "tray.full"
+        )
+    }
+
+    private func deferExternalSelection(mode: WorkspaceMode, fileURLs: [URL]) {
+        let mergedFileURLs: [URL]
+
+        if let pendingExternalSelection, pendingExternalSelection.mode == mode {
+            mergedFileURLs = uniqueFileURLs(pendingExternalSelection.fileURLs + fileURLs)
+        } else {
+            mergedFileURLs = fileURLs
         }
+
+        pendingExternalSelection = PendingExternalSelection(mode: mode, fileURLs: mergedFileURLs)
+        alert = AppAlert(
+            title: "已暂存新选择",
+            message: "当前任务完成后可应用 \(mergedFileURLs.count) 项\(mode.rawValue)文件"
+        )
+    }
+
+    private func acceptableFileURLs(_ urls: [URL], for mode: WorkspaceMode) -> [URL] {
+        let filteredURLs = urls.filter { url in
+            if mode == .compress {
+                return true
+            }
+
+            return ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent)
+        }
+
+        return uniqueFileURLs(filteredURLs)
+    }
+
+    private func uniqueFileURLs(_ urls: [URL]) -> [URL] {
+        var seenPaths: Set<String> = []
+        var uniqueURLs: [URL] = []
+
+        for url in urls {
+            let standardizedURL = url.standardizedFileURL
+            guard seenPaths.insert(standardizedURL.path).inserted else {
+                continue
+            }
+
+            uniqueURLs.append(standardizedURL)
+        }
+
+        return uniqueURLs
     }
 
     func startOperation() {
