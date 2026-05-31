@@ -35,12 +35,29 @@ struct RecentArchiveTask: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+struct RecentOutputDirectory: Identifiable, Codable, Equatable, Sendable {
+    let id: String
+    let url: URL
+    var isPinned: Bool
+    var updatedAt: Date
+
+    init(url: URL, isPinned: Bool = false, updatedAt: Date = Date()) {
+        let standardizedURL = url.standardizedFileURL
+
+        self.id = standardizedURL.path
+        self.url = standardizedURL
+        self.isPinned = isPinned
+        self.updatedAt = updatedAt
+    }
+}
+
 enum RecentArchiveStore {
     static let maxTaskCount = 6
     static let maxOutputDirectoryCount = 5
 
     private static let tasksKey = "easyzip.recentTasks"
     private static let outputDirectoriesKey = "easyzip.recentOutputDirectories"
+    private static let outputDirectoryItemsKey = "easyzip.recentOutputDirectoryItems"
 
     static func loadTasks() -> [RecentArchiveTask] {
         guard let data = UserDefaults.standard.data(forKey: tasksKey),
@@ -59,25 +76,64 @@ enum RecentArchiveStore {
         UserDefaults.standard.set(data, forKey: tasksKey)
     }
 
-    static func loadOutputDirectories() -> [URL] {
+    static func loadOutputDirectories() -> [RecentOutputDirectory] {
+        if let data = UserDefaults.standard.data(forKey: outputDirectoryItemsKey),
+           let directories = try? JSONDecoder().decode([RecentOutputDirectory].self, from: data) {
+            return sortedVisibleOutputDirectories(directories)
+        }
+
         let values = UserDefaults.standard.stringArray(forKey: outputDirectoriesKey) ?? []
 
-        let urls: [URL] = values.compactMap { value in
+        let directories: [RecentOutputDirectory] = values.compactMap { value in
             guard let url = URL(string: value), url.isFileURL else {
                 return nil
             }
 
-            return url
+            return RecentOutputDirectory(url: url)
         }
 
-        return Array(urls.prefix(maxOutputDirectoryCount))
+        return sortedVisibleOutputDirectories(directories)
     }
 
-    static func saveOutputDirectories(_ urls: [URL]) {
-        let values = urls
-            .prefix(maxOutputDirectoryCount)
-            .map(\.absoluteString)
+    static func saveOutputDirectories(_ directories: [RecentOutputDirectory]) {
+        let values = sortedVisibleOutputDirectories(directories)
 
-        UserDefaults.standard.set(Array(values), forKey: outputDirectoriesKey)
+        guard let data = try? JSONEncoder().encode(values) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: outputDirectoryItemsKey)
+    }
+
+    static func sortedVisibleOutputDirectories(
+        _ directories: [RecentOutputDirectory]
+    ) -> [RecentOutputDirectory] {
+        let uniqueDirectories = uniqueOutputDirectories(directories)
+        let pinnedDirectories = uniqueDirectories
+            .filter(\.isPinned)
+            .sorted { $0.updatedAt > $1.updatedAt }
+        let recentDirectories = uniqueDirectories
+            .filter { !$0.isPinned }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(maxOutputDirectoryCount)
+
+        return pinnedDirectories + Array(recentDirectories)
+    }
+
+    private static func uniqueOutputDirectories(
+        _ directories: [RecentOutputDirectory]
+    ) -> [RecentOutputDirectory] {
+        var seenPaths: Set<String> = []
+        var uniqueDirectories: [RecentOutputDirectory] = []
+
+        for directory in directories {
+            guard seenPaths.insert(directory.id).inserted else {
+                continue
+            }
+
+            uniqueDirectories.append(directory)
+        }
+
+        return uniqueDirectories
     }
 }

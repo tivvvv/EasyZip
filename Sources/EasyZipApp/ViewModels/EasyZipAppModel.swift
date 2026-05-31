@@ -287,6 +287,29 @@ final class EasyZipAppModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([revealTargetURL])
     }
 
+    func clearRecentTasks() {
+        recentTasks.removeAll()
+        RecentArchiveStore.saveTasks(recentTasks)
+    }
+
+    func removeRecentOutputDirectory(_ directory: RecentOutputDirectory) {
+        recentOutputDirectories.removeAll { $0.id == directory.id }
+        RecentArchiveStore.saveOutputDirectories(recentOutputDirectories)
+    }
+
+    func toggleRecentOutputDirectoryPin(_ directory: RecentOutputDirectory) {
+        guard let index = recentOutputDirectories.firstIndex(where: { $0.id == directory.id }) else {
+            return
+        }
+
+        recentOutputDirectories[index].isPinned.toggle()
+        recentOutputDirectories[index].updatedAt = Date()
+        recentOutputDirectories = RecentArchiveStore.sortedVisibleOutputDirectories(
+            recentOutputDirectories
+        )
+        RecentArchiveStore.saveOutputDirectories(recentOutputDirectories)
+    }
+
     func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard !isRunning else {
             return false
@@ -461,10 +484,18 @@ final class EasyZipAppModel: ObservableObject {
 
     private func recordRecentOutputDirectory(_ url: URL) {
         let standardizedURL = url.standardizedFileURL
-        recentOutputDirectories.removeAll { $0.standardizedFileURL.path == standardizedURL.path }
-        recentOutputDirectories.insert(standardizedURL, at: 0)
-        recentOutputDirectories = Array(
-            recentOutputDirectories.prefix(RecentArchiveStore.maxOutputDirectoryCount)
+        let existingDirectory = recentOutputDirectories.first {
+            $0.url.standardizedFileURL.path == standardizedURL.path
+        }
+        let directory = RecentOutputDirectory(
+            url: standardizedURL,
+            isPinned: existingDirectory?.isPinned ?? false
+        )
+
+        recentOutputDirectories.removeAll { $0.id == directory.id }
+        recentOutputDirectories.insert(directory, at: 0)
+        recentOutputDirectories = RecentArchiveStore.sortedVisibleOutputDirectories(
+            recentOutputDirectories
         )
         RecentArchiveStore.saveOutputDirectories(recentOutputDirectories)
     }

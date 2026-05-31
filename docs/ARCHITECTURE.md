@@ -84,7 +84,8 @@ EasyZipCore
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
 - AppDelegate 管理菜单栏图标和轻量状态面板, 按需创建任务工作台窗口.
 - 菜单栏状态面板和任务工作台共用同一个 `EasyZipAppModel`, 因此进度, 结果和最近记录保持同步.
-- `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和最近输出目录.
+- `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
+- 菜单栏状态面板支持清空最近任务, 固定或移除输出目录, 失败任务可回到工作台查看详情.
 - `TaskCompletionNotifier` 在成功完成任务后发送 macOS 系统通知.
 - Finder Sync extension 打包在 `Contents/PlugIns`, 通过 `easyzip://` URL scheme 把 Finder 选择传回主 app.
 - `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.

@@ -38,7 +38,7 @@ struct EasyZipMenuBarPanelView: View {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: model.isRunning ? "clock.arrow.circlepath" : statusIconName)
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(model.isRunning ? .blue : .primary)
+                    .foregroundStyle(statusColor)
                     .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -86,12 +86,22 @@ struct EasyZipMenuBarPanelView: View {
 
     private var recentTasksSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("最近任务")
+            HStack {
+                sectionTitle("最近任务")
+                Spacer()
+                if !model.recentTasks.isEmpty {
+                    iconButton(
+                        systemName: "trash",
+                        help: "清空最近任务",
+                        action: model.clearRecentTasks
+                    )
+                }
+            }
 
             if model.recentTasks.isEmpty {
                 emptyText("暂无最近任务")
             } else {
-                ForEach(model.recentTasks.prefix(4)) { task in
+                ForEach(model.recentTasks) { task in
                     recentTaskRow(task)
                 }
             }
@@ -106,8 +116,8 @@ struct EasyZipMenuBarPanelView: View {
             if model.recentOutputDirectories.isEmpty {
                 emptyText("暂无输出目录")
             } else {
-                ForEach(Array(model.recentOutputDirectories.prefix(4)), id: \.path) { url in
-                    outputDirectoryRow(url)
+                ForEach(model.recentOutputDirectories) { directory in
+                    outputDirectoryRow(directory)
                 }
             }
         }
@@ -142,11 +152,32 @@ struct EasyZipMenuBarPanelView: View {
             return model.progressText
         }
 
-        return model.taskResult?.detail ?? "准备处理压缩和解压任务"
+        guard let task = model.recentTasks.first else {
+            return model.taskResult?.detail ?? "准备处理压缩和解压任务"
+        }
+
+        return "\(task.detail)  \(dateText(task.completedAt))"
     }
 
     private var statusIconName: String {
         model.taskResult?.iconName ?? "archivebox"
+    }
+
+    private var statusColor: Color {
+        if model.isRunning {
+            return .blue
+        }
+
+        switch statusIconName {
+        case "checkmark.circle":
+            return .green
+        case "exclamationmark.triangle":
+            return .orange
+        case "xmark.circle":
+            return .secondary
+        default:
+            return .primary
+        }
     }
 
     private func actionButton(
@@ -197,7 +228,7 @@ struct EasyZipMenuBarPanelView: View {
                 }
 
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
+                Image(systemName: task.outputURL == nil ? "macwindow" : "chevron.right")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -206,34 +237,44 @@ struct EasyZipMenuBarPanelView: View {
         .buttonStyle(.plain)
     }
 
-    private func outputDirectoryRow(_ url: URL) -> some View {
-        Button {
-            actions.openURL(url)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "folder")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
+    private func outputDirectoryRow(_ directory: RecentOutputDirectory) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                actions.openURL(directory.url)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: directory.isPinned ? "pin.fill" : "folder")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(directory.isPinned ? Color.accentColor : Color.secondary)
+                        .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                    Text(url.deletingLastPathComponent().path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(directoryTitle(for: directory.url))
+                            .font(.subheadline)
+                            .lineLimit(1)
+                        Text(directoryParentPath(for: directory.url))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
                 }
-
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.up.forward")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            iconButton(
+                systemName: directory.isPinned ? "pin.slash" : "pin",
+                help: directory.isPinned ? "取消固定" : "固定目录"
+            ) {
+                model.toggleRecentOutputDirectoryPin(directory)
+            }
+
+            iconButton(systemName: "xmark", help: "移除目录") {
+                model.removeRecentOutputDirectory(directory)
+            }
         }
-        .buttonStyle(.plain)
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -253,5 +294,27 @@ struct EasyZipMenuBarPanelView: View {
 
     private func dateText(_ date: Date) -> String {
         DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .short)
+    }
+
+    private func directoryTitle(for url: URL) -> String {
+        url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
+    }
+
+    private func directoryParentPath(for url: URL) -> String {
+        url.deletingLastPathComponent().path
+    }
+
+    private func iconButton(
+        systemName: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
     }
 }
