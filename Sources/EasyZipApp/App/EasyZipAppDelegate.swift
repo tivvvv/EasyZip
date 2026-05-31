@@ -17,6 +17,12 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         installMainMenu()
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            handleIncomingURL(url)
+        }
+    }
+
     func windowWillClose(_ notification: Notification) {
         guard notification.object as? NSWindow === workspaceWindow else {
             return
@@ -141,6 +147,40 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
 
         showWorkspace(mode: mode, fileURLs: fileURLs)
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        guard url.scheme == "easyzip",
+              url.host == "finder-action",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return
+        }
+
+        let queryItems = components.queryItems ?? []
+        let modeValue = queryItems.first { $0.name == "mode" }?.value
+        let fileURLs = queryItems
+            .filter { $0.name == "item" }
+            .compactMap(\.value)
+            .compactMap(URL.init(string:))
+            .filter(\.isFileURL)
+
+        guard let mode = workspaceMode(from: modeValue), !fileURLs.isEmpty else {
+            showWorkspace()
+            return
+        }
+
+        showWorkspace(mode: mode, fileURLs: fileURLs)
+    }
+
+    private func workspaceMode(from value: String?) -> WorkspaceMode? {
+        switch value {
+        case "compress":
+            return .compress
+        case "extract":
+            return .extract
+        default:
+            return nil
+        }
     }
 
     private func showWorkspace(

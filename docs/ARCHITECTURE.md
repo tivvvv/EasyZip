@@ -11,7 +11,8 @@
 
 - 语言: Swift 6.
 - UI: SwiftUI 为主, AppKit bridge 补足菜单, 拖拽, Finder 交互, 文件选择器, 窗口细节.
-- 桌面集成: AppKit `NSStatusItem` 提供菜单栏常驻入口, macOS Services 提供 Finder 右键入口.
+- 桌面集成: AppKit `NSStatusItem` 提供菜单栏常驻入口, Finder Sync extension 提供 Finder 右键菜单,
+  macOS Services 提供兜底右键入口.
 - 核心模块: Swift Package `EasyZipCore`.
 - 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖常见归档格式的读写.
 - RAR 压缩: 系统 `libarchive` 不提供 RAR writer, 因此通过可选外部 `rar` 命令接入.
@@ -80,6 +81,7 @@ EasyZipCore
 - 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
 - AppDelegate 管理菜单栏图标, 按需创建任务工作台窗口.
+- Finder Sync extension 打包在 `Contents/PlugIns`, 通过 `easyzip://` URL scheme 把 Finder 选择传回主 app.
 - `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
 - 已识别加密归档并返回 `ArchiveError.encryptedArchive`, 但暂不支持输入密码.
@@ -110,4 +112,4 @@ EasyZipCore
   作为 fallback.
 - RAR 兼容性: 如 libarchive 对部分 RAR 变体不足, 增加 `UnarEngine` 或 `XADEngine` 作为解压 fallback.
 - tar 系列: 已通过现有 `LibArchiveEngine` 接入, 后续可继续增加 `.tar.zst`.
-- Finder 扩展: 新增 app extension target, 只通过 IPC 或 shared service 调用核心能力.
+- Finder 扩展: 已新增 Finder Sync extension, 后续可接 App Group 或 XPC 传递更大批量的选择.
