@@ -2,6 +2,8 @@ import XCTest
 @testable import EasyZipCore
 
 final class ArchiveFormatDetectorTests: XCTestCase {
+    private let fileManager = FileManager.default
+
     func testDetectsZipByExtension() throws {
         let detector = DefaultArchiveFormatDetector()
 
@@ -78,5 +80,60 @@ final class ArchiveFormatDetectorTests: XCTestCase {
         XCTAssertThrowsError(try detector.detectFormat(for: archiveURL)) { error in
             XCTAssertEqual(error as? ArchiveError, .unsupportedFormat("iso"))
         }
+    }
+
+    func testDetectsZipByMagicNumberBeforeExtension() throws {
+        let archiveURL = try makeTemporaryFileURL(filename: "renamed.rar")
+        defer {
+            try? fileManager.removeItem(at: archiveURL.deletingLastPathComponent())
+        }
+        try Data([0x50, 0x4B, 0x03, 0x04, 0x00]).write(to: archiveURL)
+
+        let format = try DefaultArchiveFormatDetector().detectFormat(for: archiveURL)
+
+        XCTAssertEqual(format, .zip)
+    }
+
+    func testDetectsSevenZipAndRARByMagicNumber() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+        let sevenZipURL = workspaceURL.appendingPathComponent("archive.data")
+        let rarURL = workspaceURL.appendingPathComponent("archive.bin")
+
+        try Data([0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00]).write(to: sevenZipURL)
+        try Data([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00]).write(to: rarURL)
+
+        let detector = DefaultArchiveFormatDetector()
+
+        XCTAssertEqual(try detector.detectFormat(for: sevenZipURL), .sevenZip)
+        XCTAssertEqual(try detector.detectFormat(for: rarURL), .rar)
+    }
+
+    func testDetectsTarByMagicNumber() throws {
+        let archiveURL = try makeTemporaryFileURL(filename: "archive.data")
+        defer {
+            try? fileManager.removeItem(at: archiveURL.deletingLastPathComponent())
+        }
+        var bytes = [UInt8](repeating: 0, count: 512)
+        bytes.replaceSubrange(257..<262, with: [0x75, 0x73, 0x74, 0x61, 0x72])
+        try Data(bytes).write(to: archiveURL)
+
+        let format = try DefaultArchiveFormatDetector().detectFormat(for: archiveURL)
+
+        XCTAssertEqual(format, .tar)
+    }
+
+    private func makeTemporaryFileURL(filename: String) throws -> URL {
+        try makeWorkspaceURL().appendingPathComponent(filename)
+    }
+
+    private func makeWorkspaceURL() throws -> URL {
+        let url = fileManager.temporaryDirectory
+            .appendingPathComponent("EasyZipFormatTests-\(UUID().uuidString)", isDirectory: true)
+
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }

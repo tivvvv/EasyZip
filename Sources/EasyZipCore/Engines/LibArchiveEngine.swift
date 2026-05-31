@@ -55,8 +55,10 @@ public struct LibArchiveEngine: ArchiveEngine {
         _ request: ExtractionRequest,
         progress: ArchiveProgressHandler? = nil
     ) async throws {
+        let destinationRootURL = extractionRootURL(for: request)
+
         try fileManager.createDirectory(
-            at: request.destinationURL,
+            at: destinationRootURL,
             withIntermediateDirectories: true
         )
 
@@ -67,7 +69,7 @@ public struct LibArchiveEngine: ArchiveEngine {
             _ = archive_read_free(archive)
         }
 
-        let pathValidator = ArchivePathValidator(destinationURL: request.destinationURL)
+        let pathValidator = ArchivePathValidator(destinationURL: destinationRootURL)
         var completedByteCount: Int64 = 0
         var rawEntry: OpaquePointer?
 
@@ -97,7 +99,7 @@ public struct LibArchiveEngine: ArchiveEngine {
             let entryPath = try pathname(for: rawEntry)
             let destinationURL = try destinationURL(
                 for: entryPath,
-                baseURL: request.destinationURL,
+                baseURL: destinationRootURL,
                 validator: pathValidator,
                 shouldValidate: request.options.validateEntryPaths
             )
@@ -106,7 +108,8 @@ public struct LibArchiveEngine: ArchiveEngine {
                 rawEntry,
                 from: archive,
                 to: destinationURL,
-                baseURL: request.destinationURL,
+                baseURL: destinationRootURL,
+                entryPath: entryPath,
                 options: request.options
             ) { byteCount in
                 completedByteCount += byteCount
@@ -278,6 +281,19 @@ private extension LibArchiveEngine {
         return fileSizes.reduce(0, +)
     }
 
+    func extractionRootURL(for request: ExtractionRequest) -> URL {
+        guard request.options.shouldCreateContainingDirectory else {
+            return request.destinationURL
+        }
+
+        let directoryName = ArchiveFormat.removingArchiveExtension(
+            from: request.archiveURL.lastPathComponent
+        )
+        let safeDirectoryName = directoryName.isEmpty ? "归档内容" : directoryName
+
+        return request.destinationURL.appendingPathComponent(safeDirectoryName, isDirectory: true)
+    }
+
     func makeReader(for archiveURL: URL) throws -> OpaquePointer {
         guard fileManager.fileExists(atPath: archiveURL.path) else {
             throw ArchiveError.invalidSource(archiveURL)
@@ -345,7 +361,7 @@ private extension LibArchiveEngine {
         }
 
         do {
-            try configureWriter(archive, for: request.format)
+            try configureWriter(archive, for: request)
 
             try request.destinationURL.path.withCString { path in
                 try require(
@@ -362,30 +378,35 @@ private extension LibArchiveEngine {
         }
     }
 
-    func configureWriter(_ archive: OpaquePointer, for format: ArchiveFormat) throws {
-        switch format {
+    func configureWriter(_ archive: OpaquePointer, for request: CompressionRequest) throws {
+        switch request.format {
         case .zip:
             try require(
                 archive_write_set_format_zip(archive),
                 archive: archive,
                 operation: "enable zip writer"
             )
+            try setFormatCompressionLevel(archive, options: request.options)
         case .sevenZip:
             try require(
                 archive_write_set_format_7zip(archive),
                 archive: archive,
                 operation: "enable 7z writer"
             )
+            try setFormatCompressionLevel(archive, options: request.options)
         case .rar:
-            throw ArchiveError.unsupportedOperation(format: format, operation: .create)
+            throw ArchiveError.unsupportedOperation(format: request.format, operation: .create)
         case .tar:
             try configureTarWriter(archive, filter: archive_write_add_filter_none, filterName: "none")
         case .tarGzip:
             try configureTarWriter(archive, filter: archive_write_add_filter_gzip, filterName: "gzip")
+            try setFilterCompressionLevel(archive, options: request.options)
         case .tarBzip2:
             try configureTarWriter(archive, filter: archive_write_add_filter_bzip2, filterName: "bzip2")
+            try setFilterCompressionLevel(archive, options: request.options)
         case .tarXz:
             try configureTarWriter(archive, filter: archive_write_add_filter_xz, filterName: "xz")
+            try setFilterCompressionLevel(archive, options: request.options)
         }
     }
 
@@ -404,6 +425,66 @@ private extension LibArchiveEngine {
             archive: archive,
             operation: "enable \(filterName) filter"
         )
+    }
+
+    func setFormatCompressionLevel(
+        _ archive: OpaquePointer,
+        options: CompressionOptions
+    ) throws {
+        try setCompressionLevel(
+            archive,
+            setter: archive_write_set_format_option,
+            operation: "set format compression level",
+            options: options
+        )
+    }
+
+    func setFilterCompressionLevel(
+        _ archive: OpaquePointer,
+        options: CompressionOptions
+    ) throws {
+        try setCompressionLevel(
+            archive,
+            setter: archive_write_set_filter_option,
+            operation: "set filter compression level",
+            options: options
+        )
+    }
+
+    func setCompressionLevel(
+        _ archive: OpaquePointer,
+        setter: (
+            OpaquePointer?,
+            UnsafePointer<CChar>?,
+            UnsafePointer<CChar>?,
+            UnsafePointer<CChar>?
+        ) -> Int32,
+        operation: String,
+        options: CompressionOptions
+    ) throws {
+        let level = compressionLevelValue(for: options.compressionLevel)
+        try "compression-level".withCString { option in
+            try "\(level)".withCString { value in
+                try require(
+                    setter(archive, nil, option, value),
+                    archive: archive,
+                    operation: operation
+                )
+            }
+        }
+    }
+
+    func compressionLevelValue(for level: CompressionLevel) -> Int {
+        switch level {
+        case .fastest:
+            return 1
+        case .balanced:
+            return 6
+        case .maximum:
+            return 9
+        case .custom(let value):
+            return min(max(value, 0), 9)
+        }
     }
 
     func makeArchiveEntry(from rawEntry: OpaquePointer) -> ArchiveEntry {
@@ -475,12 +556,14 @@ private extension LibArchiveEngine {
         from archive: OpaquePointer,
         to destinationURL: URL,
         baseURL: URL,
+        entryPath: String,
         options: ExtractionOptions,
         onBytesWritten: (Int64) -> Void
     ) throws {
         let fileType = archive_entry_filetype(rawEntry)
         let resolvedDestinationURL = try destinationURLByResolvingCollision(
             destinationURL,
+            entryPath: entryPath,
             fileType: fileType,
             options: options
         )
@@ -574,6 +657,7 @@ private extension LibArchiveEngine {
 
     func destinationURLByResolvingCollision(
         _ destinationURL: URL,
+        entryPath: String,
         fileType: UInt32,
         options: ExtractionOptions
     ) throws -> URL? {
@@ -583,23 +667,63 @@ private extension LibArchiveEngine {
             return destinationURL
         }
 
-        switch options.overwritePolicy {
-        case .overwrite:
-            if fileType == LibArchiveFileType.directory && isDirectory.boolValue {
-                return destinationURL
+        if fileType == LibArchiveFileType.directory && isDirectory.boolValue {
+            if options.overwritePolicy == .skip {
+                return nil
             }
 
+            return destinationURL
+        }
+
+        let overwritePolicy = try effectiveOverwritePolicy(
+            for: destinationURL,
+            entryPath: entryPath,
+            fileType: fileType,
+            existingItemIsDirectory: isDirectory.boolValue,
+            options: options
+        )
+
+        switch overwritePolicy {
+        case .overwrite:
             try fileManager.removeItem(at: destinationURL)
             return destinationURL
-        case .skip, .ask:
+        case .skip:
             return nil
+        case .ask:
+            throw ArchiveError.conflictRequiresDecision(destinationURL)
         case .rename:
-            if fileType == LibArchiveFileType.directory && isDirectory.boolValue {
-                return destinationURL
-            }
-
             return uniqueDestinationURL(for: destinationURL)
         }
+    }
+
+    func effectiveOverwritePolicy(
+        for destinationURL: URL,
+        entryPath: String,
+        fileType: UInt32,
+        existingItemIsDirectory: Bool,
+        options: ExtractionOptions
+    ) throws -> OverwritePolicy {
+        guard options.overwritePolicy == .ask else {
+            return options.overwritePolicy
+        }
+
+        guard let conflictResolver = options.conflictResolver else {
+            throw ArchiveError.conflictRequiresDecision(destinationURL)
+        }
+
+        let conflict = ArchiveConflict(
+            entryPath: entryPath,
+            destinationURL: destinationURL,
+            existingItemIsDirectory: existingItemIsDirectory,
+            incomingItemIsDirectory: fileType == LibArchiveFileType.directory
+        )
+        let decision = conflictResolver(conflict)
+
+        guard decision != .ask else {
+            throw ArchiveError.conflictRequiresDecision(destinationURL)
+        }
+
+        return decision
     }
 
     func uniqueDestinationURL(for destinationURL: URL) -> URL {

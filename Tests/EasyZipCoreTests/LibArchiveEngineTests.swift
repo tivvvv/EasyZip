@@ -57,7 +57,10 @@ final class LibArchiveEngineTests: XCTestCase {
             ExtractionRequest(
                 archiveURL: archiveURL,
                 destinationURL: outputURL,
-                options: .init(overwritePolicy: .overwrite)
+                options: .init(
+                    overwritePolicy: .overwrite,
+                    shouldCreateContainingDirectory: false
+                )
             )
         )
 
@@ -138,6 +141,43 @@ final class LibArchiveEngineTests: XCTestCase {
         XCTAssertTrue(entryPaths.contains("source/hello.txt"))
     }
 
+    func testCreateAcceptsCompressionLevelOptions() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let engine = LibArchiveEngine()
+        let cases: [(ArchiveFormat, String, CompressionLevel)] = [
+            (.zip, "zip-fastest.zip", .fastest),
+            (.zip, "zip-maximum.zip", .maximum),
+            (.zip, "zip-custom.zip", .custom(42)),
+            (.sevenZip, "sevenzip-fastest.7z", .fastest),
+            (.sevenZip, "sevenzip-maximum.7z", .maximum),
+            (.tarGzip, "gzip-fastest.tar.gz", .fastest),
+            (.tarBzip2, "bzip2-maximum.tar.bz2", .maximum),
+            (.tarXz, "xz-custom.tar.xz", .custom(9))
+        ]
+
+        for (format, archiveName, level) in cases {
+            let archiveURL = workspaceURL.appendingPathComponent(archiveName)
+
+            try await engine.create(
+                CompressionRequest(
+                    sourceURLs: [sourceURL],
+                    destinationURL: archiveURL,
+                    format: format,
+                    options: .init(compressionLevel: level, includeHiddenFiles: true)
+                )
+            )
+
+            let entryPaths = Set(try await engine.listEntries(in: archiveURL).map(\.path))
+
+            XCTAssertTrue(entryPaths.contains("source/hello.txt"))
+        }
+    }
+
     func testExtractRenamesConflictingFiles() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -170,12 +210,145 @@ final class LibArchiveEngineTests: XCTestCase {
             ExtractionRequest(
                 archiveURL: archiveURL,
                 destinationURL: outputURL,
-                options: .init(overwritePolicy: .rename)
+                options: .init(
+                    overwritePolicy: .rename,
+                    shouldCreateContainingDirectory: false
+                )
             )
         )
 
         XCTAssertEqual(try String(contentsOf: existingFileURL, encoding: .utf8), "existing")
         XCTAssertEqual(try String(contentsOf: renamedFileURL, encoding: .utf8), "hello easyzip")
+    }
+
+    func testExtractCreatesContainingDirectoryWhenRequested() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("containing.zip")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        try await engine.create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip,
+                options: .init(includeHiddenFiles: true)
+            )
+        )
+
+        try await engine.extract(
+            ExtractionRequest(
+                archiveURL: archiveURL,
+                destinationURL: outputURL,
+                options: .init(overwritePolicy: .overwrite)
+            )
+        )
+
+        let extractedFileURL = outputURL.appendingPathComponent("containing/source/hello.txt")
+
+        XCTAssertEqual(try String(contentsOf: extractedFileURL, encoding: .utf8), "hello easyzip")
+    }
+
+    func testAskConflictRequiresResolver() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("ask.zip")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let existingFileURL = outputURL.appendingPathComponent("source/hello.txt")
+        let engine = LibArchiveEngine()
+
+        try await engine.create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip,
+                options: .init(includeHiddenFiles: true)
+            )
+        )
+        try fileManager.createDirectory(
+            at: existingFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "existing".write(to: existingFileURL, atomically: true, encoding: .utf8)
+
+        do {
+            try await engine.extract(
+                ExtractionRequest(
+                    archiveURL: archiveURL,
+                    destinationURL: outputURL,
+                    options: .init(
+                        overwritePolicy: .ask,
+                        shouldCreateContainingDirectory: false
+                    )
+                )
+            )
+            XCTFail("Expected conflict decision error.")
+        } catch ArchiveError.conflictRequiresDecision(let url) {
+            XCTAssertEqual(url.path, existingFileURL.path)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testAskConflictUsesResolverDecision() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("ask-resolver.zip")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let existingFileURL = outputURL.appendingPathComponent("source/hello.txt")
+        let engine = LibArchiveEngine()
+
+        try await engine.create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip,
+                options: .init(includeHiddenFiles: true)
+            )
+        )
+        try fileManager.createDirectory(
+            at: existingFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "existing".write(to: existingFileURL, atomically: true, encoding: .utf8)
+
+        try await engine.extract(
+            ExtractionRequest(
+                archiveURL: archiveURL,
+                destinationURL: outputURL,
+                options: .init(
+                    overwritePolicy: .ask,
+                    shouldCreateContainingDirectory: false,
+                    conflictResolver: { conflict in
+                        XCTAssertEqual(conflict.entryPath, "source/hello.txt")
+                        XCTAssertEqual(conflict.destinationURL.path, existingFileURL.path)
+                        return .rename
+                    }
+                )
+            )
+        )
+
+        XCTAssertEqual(try String(contentsOf: existingFileURL, encoding: .utf8), "existing")
+        XCTAssertEqual(
+            try String(
+                contentsOf: outputURL.appendingPathComponent("source/hello 2.txt"),
+                encoding: .utf8
+            ),
+            "hello easyzip"
+        )
     }
 
     func testCreateRejectsDestinationMatchingSource() async throws {
@@ -296,7 +469,10 @@ final class LibArchiveEngineTests: XCTestCase {
                 ExtractionRequest(
                     archiveURL: archiveURL,
                     destinationURL: outputURL,
-                    options: .init(overwritePolicy: .overwrite)
+                    options: .init(
+                        overwritePolicy: .overwrite,
+                        shouldCreateContainingDirectory: false
+                    )
                 )
             )
             XCTFail("Expected unsafe entry path error.")
@@ -365,7 +541,10 @@ final class LibArchiveEngineTests: XCTestCase {
             ExtractionRequest(
                 archiveURL: archiveURL,
                 destinationURL: outputURL,
-                options: .init(overwritePolicy: .overwrite)
+                options: .init(
+                    overwritePolicy: .overwrite,
+                    shouldCreateContainingDirectory: false
+                )
             )
         ) { progress in
             recorder.append(progress)
@@ -450,7 +629,10 @@ private extension LibArchiveEngineTests {
             ExtractionRequest(
                 archiveURL: archiveURL,
                 destinationURL: outputURL,
-                options: .init(overwritePolicy: .overwrite)
+                options: .init(
+                    overwritePolicy: .overwrite,
+                    shouldCreateContainingDirectory: false
+                )
             )
         )
 

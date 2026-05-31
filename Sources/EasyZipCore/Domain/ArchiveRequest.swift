@@ -1,7 +1,7 @@
 import Foundation
 
 /// 解压请求.
-public struct ExtractionRequest: Equatable, Sendable {
+public struct ExtractionRequest: Sendable {
     public let archiveURL: URL
     public let destinationURL: URL
     public let options: ExtractionOptions
@@ -18,22 +18,25 @@ public struct ExtractionRequest: Equatable, Sendable {
 }
 
 /// 解压选项.
-public struct ExtractionOptions: Equatable, Sendable {
+public struct ExtractionOptions: Sendable {
     public let overwritePolicy: OverwritePolicy
     public let shouldCreateContainingDirectory: Bool
     public let preservePermissions: Bool
     public let validateEntryPaths: Bool
+    public let conflictResolver: ArchiveConflictResolver?
 
     public init(
         overwritePolicy: OverwritePolicy = .ask,
         shouldCreateContainingDirectory: Bool = true,
         preservePermissions: Bool = true,
-        validateEntryPaths: Bool = true
+        validateEntryPaths: Bool = true,
+        conflictResolver: ArchiveConflictResolver? = nil
     ) {
         self.overwritePolicy = overwritePolicy
         self.shouldCreateContainingDirectory = shouldCreateContainingDirectory
         self.preservePermissions = preservePermissions
         self.validateEntryPaths = validateEntryPaths
+        self.conflictResolver = conflictResolver
     }
 }
 
@@ -84,6 +87,28 @@ public enum OverwritePolicy: Equatable, Sendable {
     case overwrite
     case rename
 }
+
+/// 表示解压目标已存在时的冲突信息.
+public struct ArchiveConflict: Equatable, Sendable {
+    public let entryPath: String
+    public let destinationURL: URL
+    public let existingItemIsDirectory: Bool
+    public let incomingItemIsDirectory: Bool
+
+    public init(
+        entryPath: String,
+        destinationURL: URL,
+        existingItemIsDirectory: Bool,
+        incomingItemIsDirectory: Bool
+    ) {
+        self.entryPath = entryPath
+        self.destinationURL = destinationURL
+        self.existingItemIsDirectory = existingItemIsDirectory
+        self.incomingItemIsDirectory = incomingItemIsDirectory
+    }
+}
+
+public typealias ArchiveConflictResolver = @Sendable (ArchiveConflict) -> OverwritePolicy
 
 /// 压缩等级.
 public enum CompressionLevel: Equatable, Sendable {

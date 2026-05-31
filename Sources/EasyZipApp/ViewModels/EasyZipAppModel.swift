@@ -473,14 +473,16 @@ final class EasyZipAppModel: ObservableObject {
 
             let destinationURL = extractionDestinationURL(
                 archiveURL: archiveURL,
-                archiveCount: archiveURLs.count,
                 outputDirectory: outputDirectory
             )
             destinationURLs.append(destinationURL)
 
             let request = ExtractionRequest(
                 archiveURL: archiveURL,
-                destinationURL: destinationURL,
+                destinationURL: baseDestinationURL(
+                    archiveURL: archiveURL,
+                    outputDirectory: outputDirectory
+                ),
                 options: ExtractionOptions(overwritePolicy: overwritePolicy)
             )
 
@@ -527,18 +529,25 @@ final class EasyZipAppModel: ObservableObject {
 
     private static func extractionDestinationURL(
         archiveURL: URL,
-        archiveCount: Int,
         outputDirectory: URL?
     ) -> URL {
-        let baseDirectory = outputDirectory
-            ?? archiveURL.deletingLastPathComponent()
+        let baseDirectory = baseDestinationURL(archiveURL: archiveURL, outputDirectory: outputDirectory)
+        let directoryName = extractionContainingDirectoryName(for: archiveURL)
 
-        if archiveCount == 1 {
-            return baseDirectory
-        }
-
-        let directoryName = ArchiveFormat.removingArchiveExtension(from: archiveURL.lastPathComponent)
         return baseDirectory.appendingPathComponent(directoryName, isDirectory: true)
+    }
+
+    private static func extractionContainingDirectoryName(for archiveURL: URL) -> String {
+        let directoryName = ArchiveFormat.removingArchiveExtension(from: archiveURL.lastPathComponent)
+
+        return directoryName.isEmpty ? "归档内容" : directoryName
+    }
+
+    private static func baseDestinationURL(
+        archiveURL: URL,
+        outputDirectory: URL?
+    ) -> URL {
+        outputDirectory ?? archiveURL.deletingLastPathComponent()
     }
 
     private static func extractionResultDetail(archiveURLs: [URL]) -> String {
@@ -554,12 +563,12 @@ final class EasyZipAppModel: ObservableObject {
         destinationURLs: [URL],
         outputDirectory: URL?
     ) -> URL? {
-        if let outputDirectory {
-            return outputDirectory
-        }
-
         if archiveURLs.count == 1 {
             return destinationURLs.first
+        }
+
+        if let outputDirectory {
+            return outputDirectory
         }
 
         return archiveURLs.first?.deletingLastPathComponent()
@@ -583,6 +592,8 @@ final class EasyZipAppModel: ObservableObject {
             return "暂不支持加密归档: \(url.path)"
         case .externalToolUnavailable(let toolName):
             return "未找到外部工具: \(toolName), RAR 压缩需要安装 RAR 命令行工具"
+        case .conflictRequiresDecision(let url):
+            return "目标已存在, 需要选择冲突处理方式: \(url.path)"
         case .unsafeEntryPath(let path):
             return "归档内包含不安全路径: \(path)"
         case .engineFailure:

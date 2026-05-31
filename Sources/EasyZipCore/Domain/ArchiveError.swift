@@ -8,6 +8,7 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case invalidDestination(URL)
     case encryptedArchive(URL)
     case externalToolUnavailable(String)
+    case conflictRequiresDecision(URL)
     case unsafeEntryPath(String)
     case engineFailure(engine: String, message: String)
     case cancelled
@@ -28,6 +29,8 @@ extension ArchiveError: CustomStringConvertible {
             "Encrypted archive is not supported: \(url.path)"
         case .externalToolUnavailable(let toolName):
             "External archive tool is unavailable: \(toolName)"
+        case .conflictRequiresDecision(let url):
+            "Archive entry conflict requires a decision: \(url.path)"
         case .unsafeEntryPath(let path):
             "Unsafe archive entry path: \(path)"
         case .engineFailure(let engine, let message):
