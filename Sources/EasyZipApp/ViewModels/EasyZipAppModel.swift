@@ -173,6 +173,23 @@ final class EasyZipAppModel: ObservableObject {
         updateDefaultArchiveName()
     }
 
+    func prepareExternalSelection(mode: WorkspaceMode, fileURLs: [URL]) {
+        guard !isRunning else {
+            alert = AppAlert(title: "任务进行中", message: "请等待当前任务完成后再添加文件")
+            return
+        }
+
+        self.mode = mode
+        selectedItems.removeAll()
+        archiveEntries.removeAll()
+        previewState = mode == .extract ? "未选择归档" : "归档预览"
+        addFileURLs(fileURLs)
+
+        if selectedItems.isEmpty {
+            alert = AppAlert(title: "没有可处理的文件", message: "请选择支持的文件后重试")
+        }
+    }
+
     func startOperation() {
         guard canRun else {
             return

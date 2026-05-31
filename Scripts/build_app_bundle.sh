@@ -48,6 +48,8 @@ printf "APPL????" > "$CONTENTS_PATH/PkgInfo"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_IDENTIFIER" "$CONTENTS_PATH/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$CONTENTS_PATH/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$CONTENTS_PATH/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :NSServices:0:NSPortName $APP_NAME" "$CONTENTS_PATH/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :NSServices:1:NSPortName $APP_NAME" "$CONTENTS_PATH/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VERSION" "$CONTENTS_PATH/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_VERSION" "$CONTENTS_PATH/Info.plist"
 

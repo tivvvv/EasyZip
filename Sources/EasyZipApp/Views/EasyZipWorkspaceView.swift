@@ -3,7 +3,11 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct EasyZipWorkspaceView: View {
-    @StateObject private var model = EasyZipAppModel()
+    @StateObject private var model: EasyZipAppModel
+
+    init(model: EasyZipAppModel = EasyZipAppModel()) {
+        _model = StateObject(wrappedValue: model)
+    }
 
     var body: some View {
         VStack(spacing: 0) {

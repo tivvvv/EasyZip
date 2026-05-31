@@ -11,6 +11,7 @@
 
 - 语言: Swift 6.
 - UI: SwiftUI 为主, AppKit bridge 补足菜单, 拖拽, Finder 交互, 文件选择器, 窗口细节.
+- 桌面集成: AppKit `NSStatusItem` 提供菜单栏常驻入口, macOS Services 提供 Finder 右键入口.
 - 核心模块: Swift Package `EasyZipCore`.
 - 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖常见归档格式的读写.
 - RAR 压缩: 系统 `libarchive` 不提供 RAR writer, 因此通过可选外部 `rar` 命令接入.
@@ -77,6 +78,9 @@ EasyZipCore
 - libarchive 写入会透传 `CompressionOptions.compressionLevel`, `.tar` 无压缩时忽略该选项.
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; `ask` 需要 resolver 给出明确决策.
 - 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
+- App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
+- AppDelegate 管理菜单栏图标, 按需创建任务工作台窗口.
+- `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
 - 已识别加密归档并返回 `ArchiveError.encryptedArchive`, 但暂不支持输入密码.
 - 当前不支持分卷归档.
