@@ -82,7 +82,7 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     var archiveFileNamePreview: String {
-        Self.compressionFileName(format: selectedFormat, archiveName: archiveName)
+        ArchiveTaskRunner.compressionFileName(format: selectedFormat, archiveName: archiveName)
     }
 
     var canRevealOutput: Bool {
@@ -318,7 +318,7 @@ final class EasyZipAppModel: ObservableObject {
 
                 switch mode {
                 case .compress:
-                    result = try await Self.compress(
+                    result = try await ArchiveTaskRunner.compress(
                         sourceURLs: selectedItems,
                         outputDirectory: outputDirectory,
                         format: selectedFormat,
@@ -333,7 +333,7 @@ final class EasyZipAppModel: ObservableObject {
                         }
                     )
                 case .extract:
-                    result = try await Self.extract(
+                    result = try await ArchiveTaskRunner.extract(
                         archiveURLs: selectedItems,
                         outputDirectory: outputDirectory,
                         overwritePolicy: overwritePolicy,
@@ -433,7 +433,7 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     private func reportMissingRequiredExternalTool() {
-        let message = userFacingErrorMessage(
+        let message = ArchiveErrorMessageFormatter.message(
             for: ArchiveError.externalToolUnavailable(RARCommandResolver.toolName)
         )
 
@@ -546,7 +546,7 @@ final class EasyZipAppModel: ObservableObject {
     private func failOperation(_ error: Error) {
         isRunning = false
         progressText = "失败"
-        let message = userFacingErrorMessage(for: error)
+        let message = ArchiveErrorMessageFormatter.message(for: error)
         let result = TaskResult(
             title: "操作失败",
             detail: message,
@@ -597,207 +597,4 @@ final class EasyZipAppModel: ObservableObject {
         return outputURL.deletingLastPathComponent()
     }
 
-    private static func compress(
-        sourceURLs: [URL],
-        outputDirectory: URL?,
-        format: ArchiveFormat,
-        archiveName: String,
-        includeHiddenFiles: Bool,
-        preserveParentDirectory: Bool,
-        preserveMetadata: Bool,
-        progressHandler: ArchiveProgressHandler?
-    ) async throws -> TaskResult {
-        let destinationURL = compressionDestinationURL(
-            sourceURLs: sourceURLs,
-            outputDirectory: outputDirectory,
-            format: format,
-            archiveName: archiveName
-        )
-        let request = CompressionRequest(
-            sourceURLs: sourceURLs,
-            destinationURL: destinationURL,
-            format: format,
-            options: CompressionOptions(
-                includeHiddenFiles: includeHiddenFiles,
-                preserveMetadata: preserveMetadata,
-                preserveParentDirectory: preserveParentDirectory
-            )
-        )
-
-        try await ArchiveService.makeDefault().create(request, progress: progressHandler)
-
-        return TaskResult(
-            title: "压缩完成",
-            detail: "已生成 \(destinationURL.lastPathComponent)",
-            outputURL: destinationURL,
-            iconName: "checkmark.circle"
-        )
-    }
-
-    private static func extract(
-        archiveURLs: [URL],
-        outputDirectory: URL?,
-        overwritePolicy: OverwritePolicy,
-        progressHandler: ArchiveProgressHandler?
-    ) async throws -> TaskResult {
-        let service = ArchiveService.makeDefault()
-        var destinationURLs: [URL] = []
-
-        for archiveURL in archiveURLs {
-            try Task.checkCancellation()
-
-            let destinationURL = extractionDestinationURL(
-                archiveURL: archiveURL,
-                outputDirectory: outputDirectory
-            )
-            destinationURLs.append(destinationURL)
-
-            let request = ExtractionRequest(
-                archiveURL: archiveURL,
-                destinationURL: baseDestinationURL(
-                    archiveURL: archiveURL,
-                    outputDirectory: outputDirectory
-                ),
-                options: ExtractionOptions(overwritePolicy: overwritePolicy)
-            )
-
-            try await service.extract(request, progress: progressHandler)
-        }
-
-        return TaskResult(
-            title: "解压完成",
-            detail: extractionResultDetail(archiveURLs: archiveURLs),
-            outputURL: extractionRevealURL(
-                archiveURLs: archiveURLs,
-                destinationURLs: destinationURLs,
-                outputDirectory: outputDirectory
-            ),
-            iconName: "checkmark.circle"
-        )
-    }
-
-    private static func compressionDestinationURL(
-        sourceURLs: [URL],
-        outputDirectory: URL?,
-        format: ArchiveFormat,
-        archiveName: String
-    ) -> URL {
-        let directoryURL = outputDirectory
-            ?? sourceURLs.first?.deletingLastPathComponent()
-            ?? FileManager.default.homeDirectoryForCurrentUser
-        let fileName = compressionFileName(format: format, archiveName: archiveName)
-
-        return directoryURL.appendingPathComponent(fileName)
-    }
-
-    private static func compressionFileName(format: ArchiveFormat, archiveName: String) -> String {
-        let cleanName = archiveName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseName = cleanName.isEmpty ? "归档文件" : cleanName
-        let normalizedBaseName = baseName.lowercased()
-
-        if format.fileExtensions.contains(where: { normalizedBaseName.hasSuffix(".\($0)") }) {
-            return baseName
-        }
-
-        return "\(baseName).\(format.fileExtension)"
-    }
-
-    private static func extractionDestinationURL(
-        archiveURL: URL,
-        outputDirectory: URL?
-    ) -> URL {
-        let baseDirectory = baseDestinationURL(archiveURL: archiveURL, outputDirectory: outputDirectory)
-        let directoryName = extractionContainingDirectoryName(for: archiveURL)
-
-        return baseDirectory.appendingPathComponent(directoryName, isDirectory: true)
-    }
-
-    private static func extractionContainingDirectoryName(for archiveURL: URL) -> String {
-        let directoryName = ArchiveFormat.removingArchiveExtension(from: archiveURL.lastPathComponent)
-
-        return directoryName.isEmpty ? "归档内容" : directoryName
-    }
-
-    private static func baseDestinationURL(
-        archiveURL: URL,
-        outputDirectory: URL?
-    ) -> URL {
-        outputDirectory ?? archiveURL.deletingLastPathComponent()
-    }
-
-    private static func extractionResultDetail(archiveURLs: [URL]) -> String {
-        guard archiveURLs.count == 1, let archiveURL = archiveURLs.first else {
-            return "已处理 \(archiveURLs.count) 个归档"
-        }
-
-        return "已解压 \(archiveURL.lastPathComponent)"
-    }
-
-    private static func extractionRevealURL(
-        archiveURLs: [URL],
-        destinationURLs: [URL],
-        outputDirectory: URL?
-    ) -> URL? {
-        if archiveURLs.count == 1 {
-            return destinationURLs.first
-        }
-
-        if let outputDirectory {
-            return outputDirectory
-        }
-
-        return archiveURLs.first?.deletingLastPathComponent()
-    }
-
-    private func userFacingErrorMessage(for error: Error) -> String {
-        guard let archiveError = error as? ArchiveError else {
-            return "操作未完成, 请检查文件和输出目录"
-        }
-
-        switch archiveError {
-        case .unsupportedFormat(let value):
-            return "暂不支持该归档格式: \(value)"
-        case .unsupportedOperation(let format, _):
-            return "该格式暂不支持当前操作: .\(format.fileExtension)"
-        case .invalidSource(let url):
-            return "源文件无效: \(url.path)"
-        case .invalidDestination(let url):
-            return "输出位置无效: \(url.path)"
-        case .encryptedArchive(let url):
-            return "暂不支持加密归档: \(url.path)"
-        case .externalToolUnavailable(let toolName):
-            return "未找到外部工具: \(toolName), RAR 压缩需要安装 RAR 命令行工具"
-        case .conflictRequiresDecision(let url):
-            return "目标已存在, 需要选择冲突处理方式: \(url.path)"
-        case .unsupportedEntryType(let path, let type):
-            return "归档内包含暂不支持的条目类型: \(type), \(path)"
-        case .unsafeEntryPath(let path):
-            return "归档内包含不安全路径: \(path)"
-        case .extractionResourceLimitExceeded(let violation):
-            return Self.resourceLimitErrorMessage(for: violation)
-        case .engineFailure:
-            return "归档引擎执行失败"
-        case .cancelled:
-            return "任务已取消"
-        }
-    }
-
-    private static func resourceLimitErrorMessage(
-        for violation: ExtractionResourceLimitViolation
-    ) -> String {
-        switch violation {
-        case .entryCount(let limit, let actual):
-            return "归档条目数量过多: \(actual), 最大允许 \(limit)"
-        case .totalUncompressedSize(let limit, let actual):
-            return "归档解压后体积过大: \(formatByteCount(actual)), 最大允许 \(formatByteCount(limit))"
-        case .singleFileUncompressedSize(let path, let limit, let actual):
-            return "归档内单个文件过大: \(path), \(formatByteCount(actual)), 最大允许 \(formatByteCount(limit))"
-        case .directoryDepth(let path, let limit, let actual):
-            return "归档目录层级过深: \(path), 当前 \(actual), 最大允许 \(limit)"
-        }
-    }
-
-    private static func formatByteCount(_ byteCount: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
-    }
 }

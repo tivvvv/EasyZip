@@ -26,12 +26,23 @@
 
 ```text
 EasyZip.app
-  UI
-    SwiftUI views
-    ViewModels
-    AppKit adapters
-    BuildSupport
-    Scripts
+  App
+    AppKit lifecycle
+    Main menu
+  MenuBar
+    Status panel
+  Workspace
+    SwiftUI workbench
+  ViewModels
+    App state
+  Tasks
+    Archive task runner
+  Persistence
+    Recent records
+  Support
+    UI support models and helpers
+  BuildSupport
+  Scripts
 
 EasyZipCore
   Domain
@@ -83,7 +94,9 @@ EasyZipCore
 - 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
 - AppDelegate 管理菜单栏图标和轻量状态面板, 按需创建任务工作台窗口.
+- App 侧按 `App`, `MenuBar`, `Workspace`, `ViewModels`, `Tasks`, `Persistence` 和 `Support` 拆分.
 - 菜单栏状态面板和任务工作台共用同一个 `EasyZipAppModel`, 因此进度, 结果和最近记录保持同步.
+- `ArchiveTaskRunner` 负责 UI 层任务编排, `EasyZipAppModel` 只保留状态流转和用户操作入口.
 - `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
 - 菜单栏状态面板支持清空最近任务, 固定或移除输出目录, 失败任务可回到工作台查看详情.
 - AppDelegate 统一处理应用退出, 运行中任务会先确认并取消后再退出.

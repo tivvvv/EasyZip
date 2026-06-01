@@ -1,14 +1,5 @@
 import SwiftUI
 
-struct MenuBarPanelActions {
-    let openWorkspace: () -> Void
-    let chooseCompression: () -> Void
-    let chooseExtraction: () -> Void
-    let revealURL: (URL) -> Void
-    let openURL: (URL) -> Void
-    let quit: () -> Void
-}
-
 struct EasyZipMenuBarPanelView: View {
     @ObservedObject var model: EasyZipAppModel
     let actions: MenuBarPanelActions
