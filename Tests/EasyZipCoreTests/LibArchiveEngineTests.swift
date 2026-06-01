@@ -103,6 +103,56 @@ final class LibArchiveEngineTests: XCTestCase {
         }
     }
 
+    func testRARCompressionCancelsRunningExternalProcess() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("sample.rar")
+        let startedURL = workspaceURL.appendingPathComponent("rar-started")
+        let executableURL = workspaceURL.appendingPathComponent("rar")
+        let script = """
+        #!/bin/sh
+        touch "\(startedURL.path)"
+        exec /bin/sleep 5
+        """
+
+        try script.write(to: executableURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executableURL.path
+        )
+
+        let engine = RARCommandCompressionEngine(executableURL: executableURL)
+        let task = Task {
+            try await engine.create(
+                CompressionRequest(
+                    sourceURLs: [sourceURL],
+                    destinationURL: archiveURL,
+                    format: .rar
+                )
+            )
+        }
+
+        for _ in 0..<100 where !fileManager.fileExists(atPath: startedURL.path) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(fileManager.fileExists(atPath: startedURL.path))
+
+        task.cancel()
+
+        do {
+            try await task.value
+            XCTFail("Expected cancellation.")
+        } catch is CancellationError {
+            XCTAssertFalse(fileManager.fileExists(atPath: archiveURL.path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testCreateSkipsHiddenFilesByDefault() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {

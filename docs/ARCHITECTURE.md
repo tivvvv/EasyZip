@@ -4,7 +4,7 @@
 
 - 支持 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz` 的列表预览, 解压, 压缩.
 - 支持 `.rar` 的列表预览和解压; RAR 压缩通过外部 `rar` 命令提供.
-- 先不做加密压缩, 分卷压缩, 云盘同步, Finder 扩展.
+- 先不做加密压缩, 分卷压缩和云盘同步.
 - 核心能力必须和 UI 解耦, 后续新增 RAR, 单文件 gzip, 单文件 xz 等格式时只增加引擎或格式适配.
 
 ## 技术栈
@@ -86,6 +86,7 @@ EasyZipCore
 - 菜单栏状态面板和任务工作台共用同一个 `EasyZipAppModel`, 因此进度, 结果和最近记录保持同步.
 - `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
 - 菜单栏状态面板支持清空最近任务, 固定或移除输出目录, 失败任务可回到工作台查看详情.
+- AppDelegate 统一处理应用退出, 运行中任务会先确认并取消后再退出.
 - `TaskCompletionNotifier` 在成功完成任务后发送 macOS 系统通知.
 - Finder Sync extension 打包在 `Contents/PlugIns`, 通过 `easyzip://` URL scheme 把 Finder 选择传回主 app.
 - `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.

@@ -73,7 +73,7 @@ public struct RARCommandCompressionEngine: ArchiveEngine {
         )
 
         try Task.checkCancellation()
-        try runRAR(
+        try await runRAR(
             executableURL: executableURL,
             arguments: makeArguments(
                 for: request,
@@ -95,6 +95,18 @@ public struct RARCommandCompressionEngine: ArchiveEngine {
                 totalUnitCount: totalByteCount
             )
         )
+    }
+}
+
+private final class RARProcessBox: @unchecked Sendable {
+    let process = Process()
+    let standardError = Pipe()
+    let standardOutput = Pipe()
+
+    func terminate() {
+        if process.isRunning {
+            process.terminate()
+        }
     }
 }
 
@@ -153,32 +165,44 @@ private extension RARCommandCompressionEngine {
         }
     }
 
-    func runRAR(executableURL: URL, arguments: [String]) throws {
-        let process = Process()
-        let standardError = Pipe()
-        let standardOutput = Pipe()
+    func runRAR(executableURL: URL, arguments: [String]) async throws {
+        let processBox = RARProcessBox()
 
-        process.executableURL = executableURL
-        process.arguments = arguments
-        process.standardError = standardError
-        process.standardOutput = standardOutput
+        processBox.process.executableURL = executableURL
+        processBox.process.arguments = arguments
+        processBox.process.standardError = processBox.standardError
+        processBox.process.standardOutput = processBox.standardOutput
 
-        do {
-            try process.run()
-        } catch {
-            throw ArchiveError.externalToolUnavailable(RARCommandResolver.toolName)
+        let terminationStatus: Int32 = try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+
+            return try await withCheckedThrowingContinuation { continuation in
+                processBox.process.terminationHandler = { process in
+                    continuation.resume(returning: process.terminationStatus)
+                }
+
+                do {
+                    try processBox.process.run()
+                } catch {
+                    continuation.resume(
+                        throwing: ArchiveError.externalToolUnavailable(RARCommandResolver.toolName)
+                    )
+                }
+            }
+        } onCancel: {
+            processBox.terminate()
         }
 
-        process.waitUntilExit()
+        try Task.checkCancellation()
 
-        guard process.terminationStatus == 0 else {
-            let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
-            let outputData = standardOutput.fileHandleForReading.readDataToEndOfFile()
+        guard terminationStatus == 0 else {
+            let errorData = processBox.standardError.fileHandleForReading.readDataToEndOfFile()
+            let outputData = processBox.standardOutput.fileHandleForReading.readDataToEndOfFile()
             let message = String(data: errorData + outputData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             throw ArchiveError.engineFailure(
                 engine: identifier,
-                message: message?.isEmpty == false ? message! : "rar exited with status \(process.terminationStatus)"
+                message: message?.isEmpty == false ? message! : "rar exited with status \(terminationStatus)"
             )
         }
     }

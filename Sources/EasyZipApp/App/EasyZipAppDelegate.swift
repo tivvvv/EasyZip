@@ -11,6 +11,8 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var workspaceWindow: NSWindow?
     private let workspaceModel = EasyZipAppModel()
     private var cancellables: Set<AnyCancellable> = []
+    private var terminationObserver: AnyCancellable?
+    private var isHandlingTerminationRequest = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -27,6 +29,20 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         for url in urls {
             handleIncomingURL(url)
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard workspaceModel.isRunning else {
+            return .terminateNow
+        }
+
+        guard !isHandlingTerminationRequest else {
+            return .terminateCancel
+        }
+
+        isHandlingTerminationRequest = true
+        confirmTerminationWhileRunning()
+        return .terminateLater
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -205,7 +221,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             quit: { [weak self] in
                 Task { @MainActor in
                     self?.closeStatusPanel()
-                    NSApplication.shared.terminate(nil)
+                    self?.requestApplicationTermination()
                 }
             }
         )
@@ -217,6 +233,72 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         )
 
         return popover
+    }
+
+    private func requestApplicationTermination() {
+        NSApplication.shared.terminate(nil)
+    }
+
+    private func confirmTerminationWhileRunning() {
+        closeStatusPanel()
+        showWorkspace()
+
+        let alert = NSAlert()
+        alert.messageText = "任务仍在进行中"
+        alert.informativeText = "退出易压缩会取消当前任务, 未完成的输出不会保留."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "取消任务并退出")
+        alert.addButton(withTitle: "继续运行")
+
+        guard let window = workspaceWindow else {
+            Task { @MainActor in
+                self.handleTerminationConfirmation(alert.runModal())
+            }
+            return
+        }
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            Task { @MainActor in
+                self?.handleTerminationConfirmation(response)
+            }
+        }
+    }
+
+    private func handleTerminationConfirmation(_ response: NSApplication.ModalResponse) {
+        guard response == .alertFirstButtonReturn else {
+            completeTerminationRequest(shouldTerminate: false)
+            return
+        }
+
+        beginTerminationAfterCancellingTask()
+    }
+
+    private func beginTerminationAfterCancellingTask() {
+        guard workspaceModel.isRunning else {
+            completeTerminationRequest(shouldTerminate: true)
+            return
+        }
+
+        terminationObserver = workspaceModel.$isRunning
+            .removeDuplicates()
+            .sink { [weak self] isRunning in
+                guard !isRunning else {
+                    return
+                }
+
+                Task { @MainActor in
+                    self?.completeTerminationRequest(shouldTerminate: true)
+                }
+            }
+
+        workspaceModel.cancelOperation()
+    }
+
+    private func completeTerminationRequest(shouldTerminate: Bool) {
+        terminationObserver?.cancel()
+        terminationObserver = nil
+        isHandlingTerminationRequest = false
+        NSApplication.shared.reply(toApplicationShouldTerminate: shouldTerminate)
     }
 
     private func chooseItems(mode: WorkspaceMode) {
