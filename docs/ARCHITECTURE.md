@@ -14,6 +14,7 @@
 - 桌面集成: AppKit `NSStatusItem` 提供菜单栏常驻入口, Finder Sync extension 提供 Finder 右键菜单,
   macOS Services 提供兜底右键入口.
 - 核心模块: Swift Package `EasyZipCore`.
+- 共享模块: Swift Package `EasyZipShared`, 放置 App 和 Finder Sync extension 共用的轻量逻辑.
 - 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖常见归档格式的读写.
 - RAR 压缩: 系统 `libarchive` 不提供 RAR writer, 因此通过可选外部 `rar` 命令接入.
 - App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`.
@@ -43,6 +44,9 @@ EasyZip.app
     UI support models and helpers
   BuildSupport
   Scripts
+
+EasyZipShared
+  FinderActionHandoffStore
 
 EasyZipCore
   Domain
@@ -101,7 +105,8 @@ EasyZipCore
 - 菜单栏状态面板支持清空最近任务, 固定或移除输出目录, 失败任务可回到工作台查看详情.
 - AppDelegate 统一处理应用退出, 运行中任务会先确认并取消后再退出.
 - `TaskCompletionNotifier` 在成功完成任务后发送 macOS 系统通知.
-- Finder Sync extension 打包在 `Contents/PlugIns`, 通过 `easyzip://` URL scheme 把 Finder 选择传回主 app.
+- Finder Sync extension 打包在 `Contents/PlugIns`, 通过临时 handoff 文件把 Finder 选择传回主 app.
+- `easyzip://` URL scheme 只传递操作模式和 handoff id, 旧 `item` query 入口保留兼容.
 - `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.
 - Finder 和 Services 后台唤起会走统一外部选择策略, 空闲时同模式合并, 不同模式替换.
 - 任务运行中再次唤起会生成 `PendingExternalSelection`, 菜单栏面板和工作台同步展示并允许稍后应用.

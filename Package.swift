@@ -19,6 +19,9 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "EasyZipShared"
+        ),
+        .target(
             name: "EasyZipCore",
             linkerSettings: [
                 .linkedLibrary("archive")
@@ -28,9 +31,13 @@ let package = Package(
             name: "EasyZipCoreTests",
             dependencies: ["EasyZipCore"]
         ),
+        .testTarget(
+            name: "EasyZipSharedTests",
+            dependencies: ["EasyZipShared"]
+        ),
         .executableTarget(
             name: "EasyZipApp",
-            dependencies: ["EasyZipCore"]
+            dependencies: ["EasyZipCore", "EasyZipShared"]
         )
     ]
 )

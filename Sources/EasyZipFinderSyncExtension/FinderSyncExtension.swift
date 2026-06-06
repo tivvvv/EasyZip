@@ -20,6 +20,7 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
         ".tar.xz",
         ".txz"
     ]
+    private let handoffStore = FinderActionHandoffStore()
 
     override init() {
         super.init()
@@ -122,6 +123,30 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
     }
 
     private func actionURL(mode: ActionMode, fileURLs: [URL]) -> URL? {
+        if let handoffURL = handoffActionURL(mode: mode, fileURLs: fileURLs) {
+            return handoffURL
+        }
+
+        return legacyActionURL(mode: mode, fileURLs: fileURLs)
+    }
+
+    private func handoffActionURL(mode: ActionMode, fileURLs: [URL]) -> URL? {
+        guard let handoffId = try? handoffStore.write(fileURLs: fileURLs) else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.scheme = "easyzip"
+        components.host = "finder-action"
+        components.queryItems = [
+            URLQueryItem(name: "mode", value: mode.rawValue),
+            URLQueryItem(name: FinderActionHandoffStore.handoffQueryItemName, value: handoffId)
+        ]
+
+        return components.url
+    }
+
+    private func legacyActionURL(mode: ActionMode, fileURLs: [URL]) -> URL? {
         var components = URLComponents()
         components.scheme = "easyzip"
         components.host = "finder-action"

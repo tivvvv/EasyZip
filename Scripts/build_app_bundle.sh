@@ -16,6 +16,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INFO_PLIST_TEMPLATE="$REPO_ROOT/BuildSupport/EasyZipApp/Info.plist"
 EXTENSION_INFO_PLIST_TEMPLATE="$REPO_ROOT/BuildSupport/EasyZipFinderSyncExtension/Info.plist"
 EXTENSION_SOURCE="$REPO_ROOT/Sources/EasyZipFinderSyncExtension/FinderSyncExtension.swift"
+SHARED_HANDOFF_SOURCE="$REPO_ROOT/Sources/EasyZipShared/FinderActionHandoffStore.swift"
 APP_PATH="$REPO_ROOT/$OUTPUT_DIR/$APP_NAME.app"
 CONTENTS_PATH="$APP_PATH/Contents"
 MACOS_PATH="$CONTENTS_PATH/MacOS"
@@ -57,7 +58,7 @@ cp "$EXTENSION_INFO_PLIST_TEMPLATE" "$EXTENSION_CONTENTS_PATH/Info.plist"
 printf "APPL????" > "$CONTENTS_PATH/PkgInfo"
 printf "XPC!????" > "$EXTENSION_CONTENTS_PATH/PkgInfo"
 
-xcrun swiftc "$EXTENSION_SOURCE" \
+xcrun swiftc "$EXTENSION_SOURCE" "$SHARED_HANDOFF_SOURCE" \
     -o "$EXTENSION_EXECUTABLE_PATH" \
     -module-name "$EXTENSION_PRODUCT_NAME" \
     -module-cache-path "$MODULE_CACHE_PATH" \

@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import EasyZipCore
+import EasyZipShared
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,6 +14,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var cancellables: Set<AnyCancellable> = []
     private var terminationObserver: AnyCancellable?
     private var isHandlingTerminationRequest = false
+    private let handoffStore = FinderActionHandoffStore()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -351,18 +353,45 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         let queryItems = components.queryItems ?? []
         let modeValue = queryItems.first { $0.name == "mode" }?.value
-        let fileURLs = queryItems
-            .filter { $0.name == "item" }
-            .compactMap(\.value)
-            .compactMap(URL.init(string:))
-            .filter(\.isFileURL)
 
-        guard let mode = workspaceMode(from: modeValue), !fileURLs.isEmpty else {
+        guard let mode = workspaceMode(from: modeValue) else {
+            showWorkspace()
+            return
+        }
+
+        let fileURLs: [URL]
+
+        do {
+            fileURLs = try fileURLsFromQueryItems(queryItems)
+        } catch {
+            showWorkspace()
+            workspaceModel.alert = AppAlert(
+                title: "无法读取 Finder 选择",
+                message: "请重新从 Finder 右键菜单发起操作"
+            )
+            return
+        }
+
+        guard !fileURLs.isEmpty else {
             showWorkspace()
             return
         }
 
         showWorkspace(mode: mode, fileURLs: fileURLs)
+    }
+
+    private func fileURLsFromQueryItems(_ queryItems: [URLQueryItem]) throws -> [URL] {
+        if let handoffId = queryItems.first(
+            where: { $0.name == FinderActionHandoffStore.handoffQueryItemName }
+        )?.value {
+            return try handoffStore.readAndRemove(id: handoffId)
+        }
+
+        return queryItems
+            .filter { $0.name == "item" }
+            .compactMap(\.value)
+            .compactMap(URL.init(string:))
+            .filter(\.isFileURL)
     }
 
     private func workspaceMode(from value: String?) -> WorkspaceMode? {
