@@ -107,6 +107,8 @@ EasyZipCore
 - `TaskCompletionNotifier` 在成功完成任务后发送 macOS 系统通知.
 - Finder Sync extension 打包在 `Contents/PlugIns`, 通过临时 handoff 文件把 Finder 选择传回主 app.
 - `easyzip://` URL scheme 只传递操作模式和 handoff id, 旧 `item` query 入口保留兼容.
+- Finder handoff 使用 0700 目录权限和 0600 文件权限, 并限制单次文件数量和 payload 大小.
+- App 启动时会清理过期 Finder handoff 文件.
 - `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.
 - Finder 和 Services 后台唤起会走统一外部选择策略, 空闲时同模式合并, 不同模式替换.
 - 任务运行中再次唤起会生成 `PendingExternalSelection`, 菜单栏面板和工作台同步展示并允许稍后应用.
@@ -141,3 +143,4 @@ EasyZipCore
 - RAR 兼容性: 如 libarchive 对部分 RAR 变体不足, 增加 `UnarEngine` 或 `XADEngine` 作为解压 fallback.
 - tar 系列: 已通过现有 `LibArchiveEngine` 接入, 后续可继续增加 `.tar.zst`.
 - Finder 扩展: 已新增 Finder Sync extension, 后续可接 App Group 或 XPC 传递更大批量的选择.
+- 沙盒分发: `EasyZipShared` 已保留 App Group handoff 目录入口, 后续开启 App Sandbox 时切换容器.

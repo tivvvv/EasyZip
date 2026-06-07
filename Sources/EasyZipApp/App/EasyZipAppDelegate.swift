@@ -21,6 +21,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         NSApplication.shared.servicesProvider = self
         NSUpdateDynamicServices()
         TaskCompletionNotifier.requestAuthorization()
+        handoffStore.removeExpiredFiles()
         installStatusItem()
         MainMenuBuilder.install()
         observeStatusModel()

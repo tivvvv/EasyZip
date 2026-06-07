@@ -21,6 +21,31 @@ final class FinderActionHandoffStoreTests: XCTestCase {
         }
     }
 
+    func testWritesHandoffWithPrivatePermissions() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let store = FinderActionHandoffStore(directoryURL: workspaceURL)
+        let handoffId = try store.write(fileURLs: [URL(fileURLWithPath: "/tmp/example.txt")])
+        let handoffURL = workspaceURL
+            .appendingPathComponent(handoffId)
+            .appendingPathExtension("json")
+
+        let directoryAttributes = try fileManager.attributesOfItem(atPath: workspaceURL.path)
+        let handoffAttributes = try fileManager.attributesOfItem(atPath: handoffURL.path)
+
+        XCTAssertEqual(
+            (directoryAttributes[.posixPermissions] as? NSNumber)?.intValue,
+            0o700
+        )
+        XCTAssertEqual(
+            (handoffAttributes[.posixPermissions] as? NSNumber)?.intValue,
+            0o600
+        )
+    }
+
     func testRejectsInvalidIdentifier() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -40,7 +65,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
             try? fileManager.removeItem(at: workspaceURL)
         }
 
-        var currentDate = Date(timeIntervalSince1970: 1_800_000_000)
+        var currentDate = Date()
         let store = FinderActionHandoffStore(
             directoryURL: workspaceURL,
             maxAge: 10,
@@ -52,6 +77,110 @@ final class FinderActionHandoffStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.readAndRemove(id: handoffId)) { error in
             XCTAssertEqual(error as? FinderActionHandoffStore.StoreError, .expiredHandoff)
         }
+    }
+
+    func testRejectsTooManyFileURLsWhenWriting() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let store = FinderActionHandoffStore(directoryURL: workspaceURL, maxFileCount: 1)
+        let fileURLs = [
+            URL(fileURLWithPath: "/tmp/first.txt"),
+            URL(fileURLWithPath: "/tmp/second.txt")
+        ]
+
+        XCTAssertThrowsError(try store.write(fileURLs: fileURLs)) { error in
+            XCTAssertEqual(
+                error as? FinderActionHandoffStore.StoreError,
+                .tooManyItems(maximum: 1)
+            )
+        }
+    }
+
+    func testRejectsOversizedPayloadWhenWriting() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let store = FinderActionHandoffStore(
+            directoryURL: workspaceURL,
+            maxPayloadSize: 64
+        )
+
+        XCTAssertThrowsError(
+            try store.write(fileURLs: [URL(fileURLWithPath: "/tmp/example.txt")])
+        ) { error in
+            XCTAssertEqual(
+                error as? FinderActionHandoffStore.StoreError,
+                .payloadTooLarge(maximumBytes: 64)
+            )
+        }
+    }
+
+    func testRejectsOversizedPayloadWhenReading() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let handoffId = UUID().uuidString
+        let handoffURL = workspaceURL
+            .appendingPathComponent(handoffId)
+            .appendingPathExtension("json")
+        try Data(repeating: 0, count: 128).write(to: handoffURL)
+
+        let store = FinderActionHandoffStore(
+            directoryURL: workspaceURL,
+            maxPayloadSize: 64
+        )
+
+        XCTAssertThrowsError(try store.readAndRemove(id: handoffId)) { error in
+            XCTAssertEqual(
+                error as? FinderActionHandoffStore.StoreError,
+                .payloadTooLarge(maximumBytes: 64)
+            )
+        }
+        XCTAssertFalse(fileManager.fileExists(atPath: handoffURL.path))
+    }
+
+    func testRemovesExpiredHandoffFiles() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        var currentDate = Date()
+        let store = FinderActionHandoffStore(
+            directoryURL: workspaceURL,
+            maxAge: 10,
+            now: { currentDate }
+        )
+        let expiredId = try store.write(fileURLs: [URL(fileURLWithPath: "/tmp/expired.txt")])
+        let activeId = try store.write(fileURLs: [URL(fileURLWithPath: "/tmp/active.txt")])
+        let expiredURL = workspaceURL
+            .appendingPathComponent(expiredId)
+            .appendingPathExtension("json")
+        let activeURL = workspaceURL
+            .appendingPathComponent(activeId)
+            .appendingPathExtension("json")
+        currentDate = currentDate.addingTimeInterval(11)
+
+        try fileManager.setAttributes(
+            [.modificationDate: currentDate.addingTimeInterval(-11)],
+            ofItemAtPath: expiredURL.path
+        )
+        try fileManager.setAttributes(
+            [.modificationDate: currentDate],
+            ofItemAtPath: activeURL.path
+        )
+
+        store.removeExpiredFiles()
+
+        XCTAssertFalse(fileManager.fileExists(atPath: expiredURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: activeURL.path))
     }
 
     private func makeWorkspaceURL() throws -> URL {

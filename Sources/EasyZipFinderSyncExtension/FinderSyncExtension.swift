@@ -7,6 +7,8 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
         case extract
     }
 
+    private static let maximumLegacyURLLength = 6_000
+
     private let archiveSuffixes = [
         ".zip",
         ".7z",
@@ -127,7 +129,12 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
             return handoffURL
         }
 
-        return legacyActionURL(mode: mode, fileURLs: fileURLs)
+        guard let legacyURL = legacyActionURL(mode: mode, fileURLs: fileURLs),
+              legacyURL.absoluteString.count <= Self.maximumLegacyURLLength else {
+            return nil
+        }
+
+        return legacyURL
     }
 
     private func handoffActionURL(mode: ActionMode, fileURLs: [URL]) -> URL? {
