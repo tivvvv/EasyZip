@@ -35,6 +35,10 @@ let package = Package(
             name: "EasyZipSharedTests",
             dependencies: ["EasyZipShared"]
         ),
+        .testTarget(
+            name: "EasyZipAppTests",
+            dependencies: ["EasyZipApp"]
+        ),
         .executableTarget(
             name: "EasyZipApp",
             dependencies: ["EasyZipCore", "EasyZipShared"]
