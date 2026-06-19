@@ -60,6 +60,23 @@ struct ArchiveEntryRow: Identifiable {
         risk?.sortOrder ?? 0
     }
 
+    var canSelectForExtraction: Bool {
+        switch kind {
+        case .file, .directory, .symbolicLink:
+            true
+        case .hardLink, .other:
+            false
+        }
+    }
+
+    var selectionDisabledReason: String? {
+        guard !canSelectForExtraction else {
+            return nil
+        }
+
+        return "此条目类型不能解压"
+    }
+
     func matches(_ query: String) -> Bool {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 

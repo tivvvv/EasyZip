@@ -25,6 +25,7 @@ public struct ExtractionOptions: Sendable {
     public let validateEntryPaths: Bool
     public let resourceLimits: ExtractionResourceLimits
     public let conflictResolver: ArchiveConflictResolver?
+    public let selectedEntryPaths: Set<String>
 
     public init(
         overwritePolicy: OverwritePolicy = .ask,
@@ -32,7 +33,8 @@ public struct ExtractionOptions: Sendable {
         preservePermissions: Bool = true,
         validateEntryPaths: Bool = true,
         resourceLimits: ExtractionResourceLimits = .default,
-        conflictResolver: ArchiveConflictResolver? = nil
+        conflictResolver: ArchiveConflictResolver? = nil,
+        selectedEntryPaths: Set<String> = []
     ) {
         self.overwritePolicy = overwritePolicy
         self.shouldCreateContainingDirectory = shouldCreateContainingDirectory
@@ -40,6 +42,7 @@ public struct ExtractionOptions: Sendable {
         self.validateEntryPaths = validateEntryPaths
         self.resourceLimits = resourceLimits
         self.conflictResolver = conflictResolver
+        self.selectedEntryPaths = selectedEntryPaths
     }
 }
 

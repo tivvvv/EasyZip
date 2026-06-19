@@ -31,6 +31,7 @@ final class EasyZipAppModel: ObservableObject {
     @Published var preserveParentDirectory = true
     @Published var preserveMetadata = true
     @Published var archiveEntries: [ArchiveEntryRow] = []
+    @Published var selectedArchiveEntryPaths: Set<String> = []
     @Published var previewState = "未选择归档"
     @Published var progressFraction = 0.0
     @Published var progressText = "空闲"
@@ -48,7 +49,12 @@ final class EasyZipAppModel: ObservableObject {
     private let rarCommandResolver = RARCommandResolver()
 
     var primaryActionTitle: String {
-        mode == .compress ? "开始压缩" : "开始解压"
+        switch mode {
+        case .compress:
+            return "开始压缩"
+        case .extract:
+            return selectedArchiveEntryPaths.isEmpty ? "解压全部" : "解压所选"
+        }
     }
 
     var canRun: Bool {
@@ -87,6 +93,18 @@ final class EasyZipAppModel: ObservableObject {
 
     var canRevealOutput: Bool {
         revealTargetURL != nil
+    }
+
+    var selectedArchiveEntryCount: Int {
+        selectedArchiveEntryRows.count
+    }
+
+    var selectedArchiveEntrySizeText: String {
+        let byteCount = selectedArchiveEntryRows.reduce(Int64(0)) { partialResult, row in
+            partialResult + max(row.uncompressedSize ?? 0, 0)
+        }
+
+        return ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
     }
 
     func chooseItems() {
@@ -170,6 +188,7 @@ final class EasyZipAppModel: ObservableObject {
 
         selectedItems.removeAll()
         archiveEntries.removeAll()
+        selectedArchiveEntryPaths.removeAll()
         previewState = "未选择归档"
         resetProgressIfIdle()
         updateDefaultArchiveName()
@@ -223,6 +242,7 @@ final class EasyZipAppModel: ObservableObject {
         if !shouldMerge {
             selectedItems.removeAll()
             archiveEntries.removeAll()
+            selectedArchiveEntryPaths.removeAll()
             previewState = mode == .extract ? "未选择归档" : "归档预览"
         }
 
@@ -307,6 +327,9 @@ final class EasyZipAppModel: ObservableObject {
         let outputDirectory = outputDirectory
         let selectedFormat = selectedFormat
         let overwritePolicy = overwritePolicy
+        let entryPathsToExtract = mode == .extract && selectedItems.count == 1
+            ? selectedArchiveEntryPaths
+            : []
         let archiveName = archiveName
         let includeHiddenFiles = includeHiddenFiles
         let preserveParentDirectory = preserveParentDirectory
@@ -337,6 +360,7 @@ final class EasyZipAppModel: ObservableObject {
                         archiveURLs: selectedItems,
                         outputDirectory: outputDirectory,
                         overwritePolicy: overwritePolicy,
+                        selectedEntryPaths: entryPathsToExtract,
                         progressHandler: { progress in
                             Task { @MainActor in
                                 self?.apply(progress)
@@ -377,6 +401,35 @@ final class EasyZipAppModel: ObservableObject {
     func clearRecentTasks() {
         recentTasks.removeAll()
         RecentArchiveStore.saveTasks(recentTasks)
+    }
+
+    func isArchiveEntrySelected(_ row: ArchiveEntryRow) -> Bool {
+        selectedArchiveEntryPaths.contains(row.path)
+    }
+
+    func setArchiveEntrySelection(_ row: ArchiveEntryRow, isSelected: Bool) {
+        guard row.canSelectForExtraction else {
+            selectedArchiveEntryPaths.remove(row.path)
+            return
+        }
+
+        if isSelected {
+            selectedArchiveEntryPaths.insert(row.path)
+        } else {
+            selectedArchiveEntryPaths.remove(row.path)
+        }
+    }
+
+    func selectArchiveEntries(_ rows: [ArchiveEntryRow]) {
+        let selectablePaths = rows
+            .filter(\.canSelectForExtraction)
+            .map(\.path)
+
+        selectedArchiveEntryPaths.formUnion(selectablePaths)
+    }
+
+    func clearArchiveEntrySelection() {
+        selectedArchiveEntryPaths.removeAll()
     }
 
     func removeRecentOutputDirectory(_ directory: RecentOutputDirectory) {
@@ -422,6 +475,10 @@ final class EasyZipAppModel: ObservableObject {
 
     private var revealTargetURL: URL? {
         taskResult?.outputURL ?? outputDirectory
+    }
+
+    private var selectedArchiveEntryRows: [ArchiveEntryRow] {
+        archiveEntries.filter { selectedArchiveEntryPaths.contains($0.path) }
     }
 
     private var requiresRARCommand: Bool {
@@ -474,6 +531,7 @@ final class EasyZipAppModel: ObservableObject {
     private func refreshArchivePreview() {
         previewTask?.cancel()
         archiveEntries.removeAll()
+        selectedArchiveEntryPaths.removeAll()
 
         guard mode == .extract else {
             previewState = "归档预览"

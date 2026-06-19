@@ -11,6 +11,10 @@ struct ArchivePreviewView: View {
         sortedRows(model.archiveEntries.filter { $0.matches(searchText) })
     }
 
+    private var visibleSelectableRows: [ArchiveEntryRow] {
+        visibleRows.filter(\.canSelectForExtraction)
+    }
+
     private var summary: ArchivePreviewSummary {
         ArchivePreviewSummary(rows: model.archiveEntries, visibleCount: visibleRows.count)
     }
@@ -71,6 +75,22 @@ struct ArchivePreviewView: View {
                 Image(systemName: sortDescending ? "arrow.down" : "arrow.up")
             }
             .help(sortDescending ? "降序" : "升序")
+
+            Button {
+                model.selectArchiveEntries(visibleRows)
+            } label: {
+                Image(systemName: "checkmark.square")
+            }
+            .disabled(visibleSelectableRows.isEmpty || model.isRunning)
+            .help("选择当前结果")
+
+            Button {
+                model.clearArchiveEntrySelection()
+            } label: {
+                Image(systemName: "xmark.square")
+            }
+            .disabled(model.selectedArchiveEntryCount == 0 || model.isRunning)
+            .help("清空选择")
         }
     }
 
@@ -84,6 +104,14 @@ struct ArchivePreviewView: View {
                     .foregroundStyle(.orange)
             }
 
+            if model.selectedArchiveEntryCount > 0 {
+                SummaryBadge(
+                    title: "已选",
+                    value: "\(model.selectedArchiveEntryCount), \(model.selectedArchiveEntrySizeText)"
+                )
+                .foregroundStyle(.blue)
+            }
+
             Spacer()
         }
         .font(.caption)
@@ -91,6 +119,24 @@ struct ArchivePreviewView: View {
 
     private var previewTable: some View {
         Table(visibleRows) {
+            TableColumn("") { row in
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: {
+                            model.isArchiveEntrySelected(row)
+                        },
+                        set: { isSelected in
+                            model.setArchiveEntrySelection(row, isSelected: isSelected)
+                        }
+                    )
+                )
+                .labelsHidden()
+                .disabled(!row.canSelectForExtraction || model.isRunning)
+                .help(row.selectionDisabledReason ?? "选择条目")
+            }
+            .width(36)
+
             TableColumn("名称") { row in
                 HStack(spacing: 8) {
                     Color.clear

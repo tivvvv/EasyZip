@@ -92,11 +92,12 @@ EasyZipCore
 - `LibArchiveEngine` 解压前会流式预扫描归档计划, 写入文件时会按真实字节数再次校验资源限制.
 - 列表预览会标记 hard link, 但不会在解压阶段创建 hard link.
 - 解压默认创建与归档同名的外层目录, Core 可通过 `ExtractionOptions.shouldCreateContainingDirectory` 关闭.
+- 解压可通过 `ExtractionOptions.selectedEntryPaths` 只处理指定条目或目录子树.
 - 压缩写入先生成临时归档, 成功关闭后再替换最终目标.
 - libarchive 写入会透传 `CompressionOptions.compressionLevel`, `.tar` 无压缩时忽略该选项.
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; `ask` 需要 resolver 给出明确决策.
 - 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
-- 归档预览支持搜索过滤, 多维排序, 层级缩进, 汇总统计和风险条目标记.
+- 归档预览支持搜索过滤, 多维排序, 层级缩进, 汇总统计, 风险条目标记和所选条目解压.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
 - AppDelegate 管理菜单栏图标和轻量状态面板, 按需创建任务工作台窗口.
 - App 侧按 `App`, `MenuBar`, `Workspace`, `ViewModels`, `Tasks`, `Persistence` 和 `Support` 拆分.
@@ -143,6 +144,6 @@ EasyZipCore
   作为 fallback.
 - RAR 兼容性: 如 libarchive 对部分 RAR 变体不足, 增加 `UnarEngine` 或 `XADEngine` 作为解压 fallback.
 - tar 系列: 已通过现有 `LibArchiveEngine` 接入, 后续可继续增加 `.tar.zst`.
-- 归档预览: 后续可接入选中条目解压, 当前先增强查看和风险识别.
+- 归档预览: 已接入所选条目解压, 后续可继续补条目详情面板和多选快捷操作.
 - Finder 扩展: 已新增 Finder Sync extension, 后续可接 App Group 或 XPC 传递更大批量的选择.
 - 沙盒分发: `EasyZipShared` 已保留 App Group handoff 目录入口, 后续开启 App Sandbox 时切换容器.

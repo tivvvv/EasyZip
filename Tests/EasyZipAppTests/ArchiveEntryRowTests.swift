@@ -36,6 +36,7 @@ final class ArchiveEntryRowTests: XCTestCase {
         XCTAssertEqual(row.linkTarget, "../target")
         XCTAssertEqual(row.risk?.title, "链接")
         XCTAssertEqual(row.risk?.sortOrder, 1)
+        XCTAssertTrue(row.canSelectForExtraction)
         XCTAssertTrue(row.matches("../target"))
     }
 
@@ -47,7 +48,10 @@ final class ArchiveEntryRowTests: XCTestCase {
 
         XCTAssertEqual(hardLinkRow.risk?.title, "高风险")
         XCTAssertEqual(hardLinkRow.risk?.sortOrder, 2)
+        XCTAssertFalse(hardLinkRow.canSelectForExtraction)
+        XCTAssertEqual(hardLinkRow.selectionDisabledReason, "此条目类型不能解压")
         XCTAssertEqual(otherRow.risk?.title, "高风险")
         XCTAssertEqual(otherRow.risk?.sortOrder, 3)
+        XCTAssertFalse(otherRow.canSelectForExtraction)
     }
 }

@@ -43,6 +43,7 @@ enum ArchiveTaskRunner {
         archiveURLs: [URL],
         outputDirectory: URL?,
         overwritePolicy: OverwritePolicy,
+        selectedEntryPaths: Set<String> = [],
         progressHandler: ArchiveProgressHandler?
     ) async throws -> TaskResult {
         let service = ArchiveService.makeDefault()
@@ -63,7 +64,10 @@ enum ArchiveTaskRunner {
                     archiveURL: archiveURL,
                     outputDirectory: outputDirectory
                 ),
-                options: ExtractionOptions(overwritePolicy: overwritePolicy)
+                options: ExtractionOptions(
+                    overwritePolicy: overwritePolicy,
+                    selectedEntryPaths: selectedEntryPaths
+                )
             )
 
             try await service.extract(request, progress: progressHandler)
@@ -71,7 +75,10 @@ enum ArchiveTaskRunner {
 
         return TaskResult(
             title: "解压完成",
-            detail: extractionResultDetail(archiveURLs: archiveURLs),
+            detail: extractionResultDetail(
+                archiveURLs: archiveURLs,
+                selectedEntryCount: selectedEntryPaths.count
+            ),
             outputURL: extractionRevealURL(
                 archiveURLs: archiveURLs,
                 destinationURLs: destinationURLs,
@@ -130,7 +137,14 @@ enum ArchiveTaskRunner {
         outputDirectory ?? archiveURL.deletingLastPathComponent()
     }
 
-    private static func extractionResultDetail(archiveURLs: [URL]) -> String {
+    private static func extractionResultDetail(
+        archiveURLs: [URL],
+        selectedEntryCount: Int
+    ) -> String {
+        if selectedEntryCount > 0 {
+            return "已解压 \(selectedEntryCount) 项所选内容"
+        }
+
         guard archiveURLs.count == 1, let archiveURL = archiveURLs.first else {
             return "已处理 \(archiveURLs.count) 个归档"
         }

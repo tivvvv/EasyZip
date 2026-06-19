@@ -82,6 +82,7 @@ public struct LibArchiveEngine: ArchiveEngine {
         }
 
         let pathValidator = ArchivePathValidator(destinationURL: destinationRootURL)
+        let entrySelector = ExtractionEntrySelector(selectedPaths: request.options.selectedEntryPaths)
         var completedByteCount: Int64 = 0
         var rawEntry: OpaquePointer?
 
@@ -107,8 +108,15 @@ public struct LibArchiveEngine: ArchiveEngine {
                 throw engineFailure(archive: archive, operation: "read header")
             }
 
-            try validateEntryIsNotEncrypted(rawEntry, archiveURL: request.archiveURL)
             let entryPath = try pathname(for: rawEntry)
+            let fileType = archive_entry_filetype(rawEntry)
+
+            guard entrySelector.shouldExtract(entryPath: entryPath, fileType: fileType) else {
+                try skipEntryData(in: archive)
+                continue
+            }
+
+            try validateEntryIsNotEncrypted(rawEntry, archiveURL: request.archiveURL)
             let destinationURL = try destinationURL(
                 for: entryPath,
                 baseURL: destinationRootURL,
@@ -291,6 +299,47 @@ private extension LibArchiveEngine {
         let totalUncompressedByteCount: Int64?
     }
 
+    struct ExtractionEntrySelector {
+        private let selectedPaths: Set<String>
+
+        init(selectedPaths: Set<String>) {
+            self.selectedPaths = Set(
+                selectedPaths
+                    .map(Self.normalizedPath)
+                    .filter { !$0.isEmpty }
+            )
+        }
+
+        func shouldExtract(entryPath: String, fileType: UInt32) -> Bool {
+            guard !selectedPaths.isEmpty else {
+                return true
+            }
+
+            let normalizedEntryPath = Self.normalizedPath(entryPath)
+
+            if selectedPaths.contains(normalizedEntryPath) {
+                return true
+            }
+
+            if selectedPaths.contains(where: { normalizedEntryPath.hasPrefix($0 + "/") }) {
+                return true
+            }
+
+            guard fileType == LibArchiveFileType.directory else {
+                return false
+            }
+
+            return selectedPaths.contains { $0.hasPrefix(normalizedEntryPath + "/") }
+        }
+
+        private static func normalizedPath(_ path: String) -> String {
+            let normalizedPath = path.replacingOccurrences(of: "\\", with: "/")
+            let trimmedPath = normalizedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+            return trimmedPath
+        }
+    }
+
     func scanExtractionPlan(
         in archiveURL: URL,
         destinationRootURL: URL,
@@ -303,6 +352,7 @@ private extension LibArchiveEngine {
         }
 
         let pathValidator = ArchivePathValidator(destinationURL: destinationRootURL)
+        let entrySelector = ExtractionEntrySelector(selectedPaths: options.selectedEntryPaths)
         var entryCount = 0
         var totalUncompressedByteCount: Int64 = 0
         var hasUnknownUncompressedSize = false
@@ -322,10 +372,15 @@ private extension LibArchiveEngine {
                 throw engineFailure(archive: archive, operation: "read header")
             }
 
-            try validateEntryIsNotEncrypted(rawEntry, archiveURL: archiveURL)
-
             let entryPath = try pathname(for: rawEntry)
             let fileType = archive_entry_filetype(rawEntry)
+
+            guard entrySelector.shouldExtract(entryPath: entryPath, fileType: fileType) else {
+                try skipEntryData(in: archive)
+                continue
+            }
+
+            try validateEntryIsNotEncrypted(rawEntry, archiveURL: archiveURL)
             entryCount += 1
 
             try validateEntryCount(entryCount, limits: options.resourceLimits)

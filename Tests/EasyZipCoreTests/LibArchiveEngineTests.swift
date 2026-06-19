@@ -304,6 +304,88 @@ final class LibArchiveEngineTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: extractedFileURL, encoding: .utf8), "hello easyzip")
     }
 
+    func testExtractsOnlySelectedEntryPaths() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("selected.zip")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        try await engine.create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip,
+                options: .init(includeHiddenFiles: true)
+            )
+        )
+
+        try await engine.extract(
+            ExtractionRequest(
+                archiveURL: archiveURL,
+                destinationURL: outputURL,
+                options: .init(
+                    overwritePolicy: .overwrite,
+                    shouldCreateContainingDirectory: false,
+                    selectedEntryPaths: ["source/nested/message.txt"]
+                )
+            )
+        )
+
+        let selectedFileURL = outputURL.appendingPathComponent("source/nested/message.txt")
+        let skippedFileURL = outputURL.appendingPathComponent("source/hello.txt")
+        let skippedEmojiURL = outputURL.appendingPathComponent("source/nested/emoji-🙂.txt")
+
+        XCTAssertEqual(try String(contentsOf: selectedFileURL, encoding: .utf8), "nested content")
+        XCTAssertFalse(fileManager.fileExists(atPath: skippedFileURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: skippedEmojiURL.path))
+    }
+
+    func testExtractsSelectedDirectorySubtree() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("selected-directory.zip")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        try await engine.create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip,
+                options: .init(includeHiddenFiles: true)
+            )
+        )
+
+        try await engine.extract(
+            ExtractionRequest(
+                archiveURL: archiveURL,
+                destinationURL: outputURL,
+                options: .init(
+                    overwritePolicy: .overwrite,
+                    shouldCreateContainingDirectory: false,
+                    selectedEntryPaths: ["source/nested"]
+                )
+            )
+        )
+
+        let messageURL = outputURL.appendingPathComponent("source/nested/message.txt")
+        let emojiURL = outputURL.appendingPathComponent("source/nested/emoji-🙂.txt")
+        let skippedFileURL = outputURL.appendingPathComponent("source/hello.txt")
+
+        XCTAssertEqual(try String(contentsOf: messageURL, encoding: .utf8), "nested content")
+        XCTAssertEqual(try String(contentsOf: emojiURL, encoding: .utf8), "emoji content")
+        XCTAssertFalse(fileManager.fileExists(atPath: skippedFileURL.path))
+    }
+
     func testAskConflictRequiresResolver() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
