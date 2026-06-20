@@ -18,6 +18,7 @@
 - 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖常见归档格式的读写.
 - RAR 压缩: 系统 `libarchive` 不提供 RAR writer, 因此通过可选外部 `rar` 命令接入.
 - App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`.
+- 发布交付: 通过 `Scripts/release_build.sh` 生成 zip 产物, SHA256 校验文件和构建摘要.
 - 依赖交付: 当前使用 macOS 系统 `libarchive`, 后续如需跨系统版本一致性,
   再评估随 app bundle 携带动态库.
 - 并发模型: Swift Concurrency, 每个归档任务用独立 `Task`, 支持进度回调和取消.
@@ -127,6 +128,7 @@ EasyZipCore
 - libarchive 读取错误由 `LibArchiveReadErrorMapper` 转换为领域错误, 加密和密码错误路径可独立测试.
 - Core 测试已引入真实归档 fixture, 覆盖 `.zip`, `.7z`, `.tar.gz`, 加密 zip, 损坏 zip 和路径穿越 zip.
 - GitHub Actions 已接入 push 和 pull request 校验, 会执行测试, 构建, 打包, 签名校验和规范扫描.
+- 发布构建会复用 app bundle 打包脚本, 并检查 Finder Sync extension, URL scheme, Services 和 `LSUIElement`.
 - 当前不支持分卷归档.
 
 ## 设计原则

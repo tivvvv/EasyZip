@@ -12,6 +12,8 @@ export SWIFTPM_MODULECACHE_OVERRIDE="$ROOT_DIR/.build/module-cache"
 
 mkdir -p "$XDG_CACHE_HOME" "$CLANG_MODULE_CACHE_PATH"
 
+bash -n Scripts/build_app_bundle.sh
+bash -n Scripts/release_build.sh
 swift test
 swift build --product EasyZipApp
 Scripts/build_app_bundle.sh
@@ -25,6 +27,7 @@ scan_files=(
     docs/ARCHITECTURE.md
     Scripts/build_app_bundle.sh
     Scripts/ci_check.sh
+    Scripts/release_build.sh
 )
 
 while IFS= read -r -d '' file; do
