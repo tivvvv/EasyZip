@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 final class EasyZipAppModel: ObservableObject {
     @Published var mode: WorkspaceMode = .compress {
         didSet {
+            clearExtractionPassword()
             resetProgressIfIdle()
             refreshExternalToolAvailability()
             refreshArchivePreview()
@@ -42,11 +43,13 @@ final class EasyZipAppModel: ObservableObject {
     @Published private(set) var recentTasks = RecentArchiveStore.loadTasks()
     @Published private(set) var recentOutputDirectories = RecentArchiveStore.loadOutputDirectories()
     @Published private(set) var pendingExternalSelection: PendingExternalSelection?
+    @Published var passwordPrompt: ArchivePasswordPrompt?
     @Published var alert: AppAlert?
 
     private var operationTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private let rarCommandResolver = RARCommandResolver()
+    private var extractionPassword: String?
 
     var primaryActionTitle: String {
         switch mode {
@@ -157,6 +160,7 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
+        clearExtractionPassword()
         let filteredURLs = urls.filter { url in
             if mode == .compress {
                 return true
@@ -175,6 +179,7 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
+        clearExtractionPassword()
         selectedItems.removeAll { $0 == url }
         resetProgressIfIdle()
         updateDefaultArchiveName()
@@ -189,6 +194,7 @@ final class EasyZipAppModel: ObservableObject {
         selectedItems.removeAll()
         archiveEntries.removeAll()
         selectedArchiveEntryPaths.removeAll()
+        clearExtractionPassword()
         previewState = "未选择归档"
         resetProgressIfIdle()
         updateDefaultArchiveName()
@@ -226,6 +232,27 @@ final class EasyZipAppModel: ObservableObject {
         pendingExternalSelection = nil
     }
 
+    func submitExtractionPassword(_ password: String) {
+        guard !password.isEmpty else {
+            return
+        }
+
+        extractionPassword = password
+        passwordPrompt = nil
+        startOperation()
+    }
+
+    func cancelExtractionPasswordPrompt() {
+        clearExtractionPassword()
+        progressText = "已取消"
+        taskResult = TaskResult(
+            title: "已取消",
+            detail: "未输入归档密码",
+            outputURL: nil,
+            iconName: "xmark.circle"
+        )
+    }
+
     func noteSelectionBlocked(mode: WorkspaceMode) {
         alert = AppAlert(
             title: "任务进行中",
@@ -243,6 +270,7 @@ final class EasyZipAppModel: ObservableObject {
             selectedItems.removeAll()
             archiveEntries.removeAll()
             selectedArchiveEntryPaths.removeAll()
+            clearExtractionPassword()
             previewState = mode == .extract ? "未选择归档" : "归档预览"
         }
 
@@ -330,6 +358,7 @@ final class EasyZipAppModel: ObservableObject {
         let entryPathsToExtract = mode == .extract && selectedItems.count == 1
             ? selectedArchiveEntryPaths
             : []
+        let extractionPassword = mode == .extract ? extractionPassword : nil
         let archiveName = archiveName
         let includeHiddenFiles = includeHiddenFiles
         let preserveParentDirectory = preserveParentDirectory
@@ -361,6 +390,7 @@ final class EasyZipAppModel: ObservableObject {
                         outputDirectory: outputDirectory,
                         overwritePolicy: overwritePolicy,
                         selectedEntryPaths: entryPathsToExtract,
+                        password: extractionPassword,
                         progressHandler: { progress in
                             Task { @MainActor in
                                 self?.apply(progress)
@@ -528,6 +558,11 @@ final class EasyZipAppModel: ObservableObject {
         progressText = "空闲"
     }
 
+    private func clearExtractionPassword() {
+        extractionPassword = nil
+        passwordPrompt = nil
+    }
+
     private func refreshArchivePreview() {
         previewTask?.cancel()
         archiveEntries.removeAll()
@@ -581,6 +616,7 @@ final class EasyZipAppModel: ObservableObject {
         isRunning = false
         progressFraction = 1
         progressText = result.title
+        clearExtractionPassword()
         taskResult = result
         recordRecentTask(result)
         TaskCompletionNotifier.send(result)
@@ -590,6 +626,7 @@ final class EasyZipAppModel: ObservableObject {
     private func cancelOperationResult() {
         isRunning = false
         progressText = "已取消"
+        clearExtractionPassword()
         let result = TaskResult(
             title: "已取消",
             detail: "任务没有完成",
@@ -603,7 +640,13 @@ final class EasyZipAppModel: ObservableObject {
 
     private func failOperation(_ error: Error) {
         isRunning = false
+
+        if requestExtractionPasswordIfNeeded(for: error) {
+            return
+        }
+
         progressText = "失败"
+        clearExtractionPassword()
         let message = ArchiveErrorMessageFormatter.message(for: error)
         let result = TaskResult(
             title: "操作失败",
@@ -614,6 +657,38 @@ final class EasyZipAppModel: ObservableObject {
         taskResult = result
         recordRecentTask(result)
         alert = AppAlert(title: "操作失败", message: message)
+    }
+
+    private func requestExtractionPasswordIfNeeded(for error: Error) -> Bool {
+        guard mode == .extract,
+              selectedItems.count == 1,
+              let archiveURL = selectedItems.first,
+              let archiveError = error as? ArchiveError else {
+            return false
+        }
+
+        let isRetry: Bool
+        switch archiveError {
+        case .encryptedArchive:
+            isRetry = false
+        case .incorrectArchivePassword:
+            isRetry = true
+        default:
+            return false
+        }
+
+        extractionPassword = nil
+        passwordPrompt = ArchivePasswordPrompt(archiveURL: archiveURL, isRetry: isRetry)
+        progressFraction = 0
+        progressText = isRetry ? "等待重新输入密码" : "等待输入密码"
+        taskResult = TaskResult(
+            title: isRetry ? "密码不正确" : "需要密码",
+            detail: isRetry ? "请重新输入归档密码" : "请输入密码后继续解压",
+            outputURL: nil,
+            iconName: "lock"
+        )
+
+        return true
     }
 
     private func recordRecentTask(_ result: TaskResult) {

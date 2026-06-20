@@ -44,6 +44,7 @@ enum ArchiveTaskRunner {
         outputDirectory: URL?,
         overwritePolicy: OverwritePolicy,
         selectedEntryPaths: Set<String> = [],
+        password: String? = nil,
         progressHandler: ArchiveProgressHandler?
     ) async throws -> TaskResult {
         let service = ArchiveService.makeDefault()
@@ -66,7 +67,8 @@ enum ArchiveTaskRunner {
                 ),
                 options: ExtractionOptions(
                     overwritePolicy: overwritePolicy,
-                    selectedEntryPaths: selectedEntryPaths
+                    selectedEntryPaths: selectedEntryPaths,
+                    password: password
                 )
             )
 

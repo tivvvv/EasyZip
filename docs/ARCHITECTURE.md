@@ -115,7 +115,7 @@ EasyZipCore
 - Finder 和 Services 后台唤起会走统一外部选择策略, 空闲时同模式合并, 不同模式替换.
 - 任务运行中再次唤起会生成 `PendingExternalSelection`, 菜单栏面板和工作台同步展示并允许稍后应用.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
-- 已识别加密归档并返回 `ArchiveError.encryptedArchive`, 但暂不支持输入密码.
+- 加密归档解压支持通过 `ExtractionOptions.password` 传入密码, UI 侧会在缺少密码或密码错误时提示输入.
 - 当前不支持分卷归档.
 
 ## 设计原则

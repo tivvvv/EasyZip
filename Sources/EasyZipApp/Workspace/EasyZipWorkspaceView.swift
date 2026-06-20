@@ -37,5 +37,12 @@ struct EasyZipWorkspaceView: View {
                 dismissButton: .default(Text("确定"))
             )
         }
+        .sheet(item: $model.passwordPrompt) { prompt in
+            ArchivePasswordPromptView(
+                prompt: prompt,
+                submit: model.submitExtractionPassword,
+                cancel: model.cancelExtractionPasswordPrompt
+            )
+        }
     }
 }

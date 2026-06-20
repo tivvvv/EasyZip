@@ -386,6 +386,74 @@ final class LibArchiveEngineTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: skippedFileURL.path))
     }
 
+    func testExtractsEncryptedZipArchiveWithPassword() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let password = "easyzip-secret"
+        let archiveURL = try makeEncryptedZipArchive(in: workspaceURL, password: password)
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let wrongPasswordOutputURL = workspaceURL.appendingPathComponent("wrong-output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        let entryPaths = Set(try await engine.listEntries(in: archiveURL).map(\.path))
+        XCTAssertTrue(entryPaths.contains("secret.txt"))
+
+        do {
+            try await engine.extract(
+                ExtractionRequest(
+                    archiveURL: archiveURL,
+                    destinationURL: outputURL,
+                    options: .init(
+                        overwritePolicy: .overwrite,
+                        shouldCreateContainingDirectory: false
+                    )
+                )
+            )
+            XCTFail("Expected encrypted archive error.")
+        } catch ArchiveError.encryptedArchive(let url) {
+            XCTAssertEqual(url, archiveURL)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        do {
+            try await engine.extract(
+                ExtractionRequest(
+                    archiveURL: archiveURL,
+                    destinationURL: wrongPasswordOutputURL,
+                    options: .init(
+                        overwritePolicy: .overwrite,
+                        shouldCreateContainingDirectory: false,
+                        password: "wrong-password"
+                    )
+                )
+            )
+            XCTFail("Expected incorrect password error.")
+        } catch ArchiveError.incorrectArchivePassword(let url) {
+            XCTAssertEqual(url, archiveURL)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        try await engine.extract(
+            ExtractionRequest(
+                archiveURL: archiveURL,
+                destinationURL: outputURL,
+                options: .init(
+                    overwritePolicy: .overwrite,
+                    shouldCreateContainingDirectory: false,
+                    password: password
+                )
+            )
+        )
+
+        let extractedFileURL = outputURL.appendingPathComponent("secret.txt")
+        XCTAssertEqual(try String(contentsOf: extractedFileURL, encoding: .utf8), "encrypted content")
+    }
+
     func testAskConflictRequiresResolver() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -1128,6 +1196,45 @@ private extension LibArchiveEngineTests {
         )
 
         return sourceURL
+    }
+
+    func makeEncryptedZipArchive(in workspaceURL: URL, password: String) throws -> URL {
+        let zipURL = URL(fileURLWithPath: "/usr/bin/zip")
+        guard fileManager.isExecutableFile(atPath: zipURL.path) else {
+            throw XCTSkip("zip command is unavailable.")
+        }
+
+        let sourceURL = workspaceURL.appendingPathComponent("encrypted-source", isDirectory: true)
+        let archiveURL = workspaceURL.appendingPathComponent("encrypted.zip")
+        try fileManager.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+        try "encrypted content".write(
+            to: sourceURL.appendingPathComponent("secret.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let process = Process()
+        process.executableURL = zipURL
+        process.arguments = [
+            "-q",
+            "-P",
+            password,
+            archiveURL.path,
+            "secret.txt"
+        ]
+        process.currentDirectoryURL = sourceURL
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            throw ArchiveError.engineFailure(
+                engine: "test",
+                message: "Failed to create encrypted zip fixture."
+            )
+        }
+
+        return archiveURL
     }
 
     func isDirectory(_ url: URL) -> Bool {

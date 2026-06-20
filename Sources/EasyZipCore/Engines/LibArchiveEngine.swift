@@ -37,15 +37,19 @@ public struct LibArchiveEngine: ArchiveEngine {
                 break
             }
 
-            try require(status, archive: archive, operation: "read header")
+            try requireReadStatus(
+                status,
+                archive: archive,
+                archiveURL: archiveURL,
+                operation: "read header"
+            )
 
             guard let rawEntry else {
                 throw engineFailure(archive: archive, operation: "read header")
             }
 
-            try validateEntryIsNotEncrypted(rawEntry, archiveURL: archiveURL)
             entries.append(makeArchiveEntry(from: rawEntry))
-            try skipEntryData(in: archive)
+            try skipEntryData(in: archive, archiveURL: archiveURL)
         }
 
         return entries
@@ -75,7 +79,10 @@ public struct LibArchiveEngine: ArchiveEngine {
         )
 
         let totalByteCount = extractionPlan.totalUncompressedByteCount
-        let archive = try makeReader(for: request.archiveURL)
+        let archive = try makeReader(
+            for: request.archiveURL,
+            password: request.options.password
+        )
         defer {
             _ = archive_read_close(archive)
             _ = archive_read_free(archive)
@@ -102,7 +109,12 @@ public struct LibArchiveEngine: ArchiveEngine {
                 break
             }
 
-            try require(status, archive: archive, operation: "read header")
+            try requireReadStatus(
+                status,
+                archive: archive,
+                archiveURL: request.archiveURL,
+                operation: "read header"
+            )
 
             guard let rawEntry else {
                 throw engineFailure(archive: archive, operation: "read header")
@@ -112,11 +124,15 @@ public struct LibArchiveEngine: ArchiveEngine {
             let fileType = archive_entry_filetype(rawEntry)
 
             guard entrySelector.shouldExtract(entryPath: entryPath, fileType: fileType) else {
-                try skipEntryData(in: archive)
+                try skipEntryData(in: archive, archiveURL: request.archiveURL)
                 continue
             }
 
-            try validateEntryIsNotEncrypted(rawEntry, archiveURL: request.archiveURL)
+            try validateEntryCanBeRead(
+                rawEntry,
+                archiveURL: request.archiveURL,
+                options: request.options
+            )
             let destinationURL = try destinationURL(
                 for: entryPath,
                 baseURL: destinationRootURL,
@@ -128,6 +144,7 @@ public struct LibArchiveEngine: ArchiveEngine {
             try extractEntry(
                 rawEntry,
                 from: archive,
+                archiveURL: request.archiveURL,
                 to: destinationURL,
                 baseURL: destinationRootURL,
                 entryPath: entryPath,
@@ -345,7 +362,7 @@ private extension LibArchiveEngine {
         destinationRootURL: URL,
         options: ExtractionOptions
     ) async throws -> ExtractionPlan {
-        let archive = try makeReader(for: archiveURL)
+        let archive = try makeReader(for: archiveURL, password: options.password)
         defer {
             _ = archive_read_close(archive)
             _ = archive_read_free(archive)
@@ -366,7 +383,12 @@ private extension LibArchiveEngine {
                 break
             }
 
-            try require(status, archive: archive, operation: "read header")
+            try requireReadStatus(
+                status,
+                archive: archive,
+                archiveURL: archiveURL,
+                operation: "read header"
+            )
 
             guard let rawEntry else {
                 throw engineFailure(archive: archive, operation: "read header")
@@ -376,11 +398,11 @@ private extension LibArchiveEngine {
             let fileType = archive_entry_filetype(rawEntry)
 
             guard entrySelector.shouldExtract(entryPath: entryPath, fileType: fileType) else {
-                try skipEntryData(in: archive)
+                try skipEntryData(in: archive, archiveURL: archiveURL)
                 continue
             }
 
-            try validateEntryIsNotEncrypted(rawEntry, archiveURL: archiveURL)
+            try validateEntryCanBeRead(rawEntry, archiveURL: archiveURL, options: options)
             entryCount += 1
 
             try validateEntryCount(entryCount, limits: options.resourceLimits)
@@ -418,7 +440,7 @@ private extension LibArchiveEngine {
                 }
             }
 
-            try skipEntryData(in: archive)
+            try skipEntryData(in: archive, archiveURL: archiveURL)
         }
 
         return ExtractionPlan(
@@ -439,7 +461,7 @@ private extension LibArchiveEngine {
         return request.destinationURL.appendingPathComponent(safeDirectoryName, isDirectory: true)
     }
 
-    func makeReader(for archiveURL: URL) throws -> OpaquePointer {
+    func makeReader(for archiveURL: URL, password: String? = nil) throws -> OpaquePointer {
         guard fileManager.fileExists(atPath: archiveURL.path) else {
             throw ArchiveError.invalidSource(archiveURL)
         }
@@ -482,10 +504,12 @@ private extension LibArchiveEngine {
                 archive: archive,
                 operation: "enable tar reader"
             )
+            try addPassword(password, to: archive, archiveURL: archiveURL)
             try archiveURL.path.withCString { path in
-                try require(
+                try requireReadStatus(
                     archive_read_open_filename(archive, path, bufferSize),
                     archive: archive,
+                    archiveURL: archiveURL,
                     operation: "open archive"
                 )
             }
@@ -494,6 +518,25 @@ private extension LibArchiveEngine {
         } catch {
             _ = archive_read_free(archive)
             throw error
+        }
+    }
+
+    func addPassword(
+        _ password: String?,
+        to archive: OpaquePointer,
+        archiveURL: URL
+    ) throws {
+        guard let password, !password.isEmpty else {
+            return
+        }
+
+        try password.withCString { passphrase in
+            try requireReadStatus(
+                archive_read_add_passphrase(archive, passphrase),
+                archive: archive,
+                archiveURL: archiveURL,
+                operation: "add archive password"
+            )
         }
     }
 
@@ -672,10 +715,18 @@ private extension LibArchiveEngine {
         )
     }
 
-    func validateEntryIsNotEncrypted(_ rawEntry: OpaquePointer, archiveURL: URL) throws {
-        guard archive_entry_is_encrypted(rawEntry) == 0,
-              archive_entry_is_data_encrypted(rawEntry) == 0,
-              archive_entry_is_metadata_encrypted(rawEntry) == 0 else {
+    func validateEntryCanBeRead(
+        _ rawEntry: OpaquePointer,
+        archiveURL: URL,
+        options: ExtractionOptions
+    ) throws {
+        guard archive_entry_is_encrypted(rawEntry) != 0
+            || archive_entry_is_data_encrypted(rawEntry) != 0
+            || archive_entry_is_metadata_encrypted(rawEntry) != 0 else {
+            return
+        }
+
+        guard options.password != nil else {
             throw ArchiveError.encryptedArchive(archiveURL)
         }
     }
@@ -717,6 +768,7 @@ private extension LibArchiveEngine {
     func extractEntry(
         _ rawEntry: OpaquePointer,
         from archive: OpaquePointer,
+        archiveURL: URL,
         to destinationURL: URL,
         baseURL: URL,
         entryPath: String,
@@ -739,7 +791,7 @@ private extension LibArchiveEngine {
         )
 
         guard let resolvedDestinationURL else {
-            try skipEntryData(in: archive)
+            try skipEntryData(in: archive, archiveURL: archiveURL)
             return
         }
 
@@ -753,20 +805,26 @@ private extension LibArchiveEngine {
         case LibArchiveFileType.directory:
             try createDirectory(at: resolvedDestinationURL)
             try applyMetadata(from: rawEntry, to: resolvedDestinationURL, options: options)
-            try skipEntryData(in: archive)
+            try skipEntryData(in: archive, archiveURL: archiveURL)
         case LibArchiveFileType.symbolicLink:
-            try extractSymbolicLink(rawEntry, from: archive, to: resolvedDestinationURL)
+            try extractSymbolicLink(
+                rawEntry,
+                from: archive,
+                archiveURL: archiveURL,
+                to: resolvedDestinationURL
+            )
         case LibArchiveFileType.regular:
             try extractFile(
                 rawEntry,
                 from: archive,
+                archiveURL: archiveURL,
                 to: resolvedDestinationURL,
                 options: options,
                 onBytesWillWrite: onBytesWillWrite,
                 onBytesWritten: onBytesWritten
             )
         default:
-            try skipEntryData(in: archive)
+            try skipEntryData(in: archive, archiveURL: archiveURL)
         }
     }
 
@@ -952,6 +1010,7 @@ private extension LibArchiveEngine {
     func extractFile(
         _ rawEntry: OpaquePointer,
         from archive: OpaquePointer,
+        archiveURL: URL,
         to destinationURL: URL,
         options: ExtractionOptions,
         onBytesWillWrite: (Int64) throws -> Void,
@@ -979,7 +1038,11 @@ private extension LibArchiveEngine {
                 }
 
                 guard readCount > 0 else {
-                    throw engineFailure(archive: archive, operation: "read file data")
+                    throw readFailure(
+                        archive: archive,
+                        archiveURL: archiveURL,
+                        operation: "read file data"
+                    )
                 }
 
                 try onBytesWillWrite(Int64(readCount))
@@ -997,11 +1060,12 @@ private extension LibArchiveEngine {
     func extractSymbolicLink(
         _ rawEntry: OpaquePointer,
         from archive: OpaquePointer,
+        archiveURL: URL,
         to destinationURL: URL
     ) throws {
         guard let target = stringValue(archive_entry_symlink_utf8(rawEntry))
             ?? stringValue(archive_entry_symlink(rawEntry)) else {
-            try skipEntryData(in: archive)
+            try skipEntryData(in: archive, archiveURL: archiveURL)
             return
         }
 
@@ -1009,7 +1073,7 @@ private extension LibArchiveEngine {
 
         try createDirectory(at: destinationURL.deletingLastPathComponent())
         try fileManager.createSymbolicLink(atPath: destinationURL.path, withDestinationPath: target)
-        try skipEntryData(in: archive)
+        try skipEntryData(in: archive, archiveURL: archiveURL)
     }
 
     func destinationURLByResolvingCollision(
@@ -1489,12 +1553,19 @@ private extension LibArchiveEngine {
         return path
     }
 
-    func skipEntryData(in archive: OpaquePointer) throws {
-        try require(
-            archive_read_data_skip(archive),
-            archive: archive,
-            operation: "skip entry data"
-        )
+    func skipEntryData(in archive: OpaquePointer, archiveURL: URL? = nil) throws {
+        let status = archive_read_data_skip(archive)
+
+        if let archiveURL {
+            try requireReadStatus(
+                status,
+                archive: archive,
+                archiveURL: archiveURL,
+                operation: "skip entry data"
+            )
+        } else {
+            try require(status, archive: archive, operation: "skip entry data")
+        }
     }
 
     func require(
@@ -1507,6 +1578,17 @@ private extension LibArchiveEngine {
         }
     }
 
+    func requireReadStatus(
+        _ status: Int32,
+        archive: OpaquePointer,
+        archiveURL: URL,
+        operation: String
+    ) throws {
+        guard status == LibArchiveStatus.ok else {
+            throw readFailure(archive: archive, archiveURL: archiveURL, operation: operation)
+        }
+    }
+
     func engineFailure(archive: OpaquePointer?, operation: String) -> ArchiveError {
         let message = stringValue(archive_error_string(archive)) ?? "Unknown libarchive error."
 
@@ -1514,6 +1596,39 @@ private extension LibArchiveEngine {
             engine: identifier,
             message: "\(operation): \(message)"
         )
+    }
+
+    func readFailure(
+        archive: OpaquePointer?,
+        archiveURL: URL,
+        operation: String
+    ) -> ArchiveError {
+        let message = stringValue(archive_error_string(archive)) ?? "Unknown libarchive error."
+
+        if let passwordError = passwordError(archiveURL: archiveURL, message: message) {
+            return passwordError
+        }
+
+        return .engineFailure(
+            engine: identifier,
+            message: "\(operation): \(message)"
+        )
+    }
+
+    func passwordError(archiveURL: URL, message: String) -> ArchiveError? {
+        let lowercasedMessage = message.lowercased()
+        guard lowercasedMessage.contains("passphrase")
+            || lowercasedMessage.contains("password") else {
+            return nil
+        }
+
+        if lowercasedMessage.contains("incorrect")
+            || lowercasedMessage.contains("invalid")
+            || lowercasedMessage.contains("wrong") {
+            return .incorrectArchivePassword(archiveURL)
+        }
+
+        return .encryptedArchive(archiveURL)
     }
 
     func stringValue(_ pointer: UnsafePointer<CChar>?) -> String? {

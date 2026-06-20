@@ -39,6 +39,12 @@ func archive_read_support_format_rar5(_ archive: OpaquePointer?) -> Int32
 @_silgen_name("archive_read_support_format_tar")
 func archive_read_support_format_tar(_ archive: OpaquePointer?) -> Int32
 
+@_silgen_name("archive_read_add_passphrase")
+func archive_read_add_passphrase(
+    _ archive: OpaquePointer?,
+    _ passphrase: UnsafePointer<CChar>?
+) -> Int32
+
 @_silgen_name("archive_read_open_filename")
 func archive_read_open_filename(
     _ archive: OpaquePointer?,

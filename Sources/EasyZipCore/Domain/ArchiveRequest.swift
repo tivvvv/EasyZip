@@ -26,6 +26,7 @@ public struct ExtractionOptions: Sendable {
     public let resourceLimits: ExtractionResourceLimits
     public let conflictResolver: ArchiveConflictResolver?
     public let selectedEntryPaths: Set<String>
+    public let password: String?
 
     public init(
         overwritePolicy: OverwritePolicy = .ask,
@@ -34,7 +35,8 @@ public struct ExtractionOptions: Sendable {
         validateEntryPaths: Bool = true,
         resourceLimits: ExtractionResourceLimits = .default,
         conflictResolver: ArchiveConflictResolver? = nil,
-        selectedEntryPaths: Set<String> = []
+        selectedEntryPaths: Set<String> = [],
+        password: String? = nil
     ) {
         self.overwritePolicy = overwritePolicy
         self.shouldCreateContainingDirectory = shouldCreateContainingDirectory
@@ -43,6 +45,7 @@ public struct ExtractionOptions: Sendable {
         self.resourceLimits = resourceLimits
         self.conflictResolver = conflictResolver
         self.selectedEntryPaths = selectedEntryPaths
+        self.password = password?.isEmpty == true ? nil : password
     }
 }
 
