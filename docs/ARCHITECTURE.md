@@ -24,6 +24,7 @@
 - 测试: XCTest 覆盖领域模型, 格式识别, 路径安全, 引擎选择和共享 handoff 逻辑.
 - 测试支撑: `EasyZipTestSupport` 统一提供临时工作目录等通用测试设施.
 - 测试资源: `EasyZipCoreTests/Fixtures` 保存真实归档样本, 用于覆盖外部归档兼容性和异常文件.
+- CI: GitHub Actions 调用 `Scripts/ci_check.sh`, 本地和远端共用同一套质量门禁.
 
 ## 分层结构
 
@@ -125,6 +126,7 @@ EasyZipCore
 - 加密归档解压支持通过 `ExtractionOptions.password` 传入密码, UI 侧会在缺少密码或密码错误时提示输入.
 - libarchive 读取错误由 `LibArchiveReadErrorMapper` 转换为领域错误, 加密和密码错误路径可独立测试.
 - Core 测试已引入真实归档 fixture, 覆盖 `.zip`, `.7z`, `.tar.gz`, 加密 zip, 损坏 zip 和路径穿越 zip.
+- GitHub Actions 已接入 push 和 pull request 校验, 会执行测试, 构建, 打包, 签名校验和规范扫描.
 - 当前不支持分卷归档.
 
 ## 设计原则
