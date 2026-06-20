@@ -1,4 +1,5 @@
 import XCTest
+import EasyZipTestSupport
 @testable import EasyZipCore
 
 final class RARCommandResolverTests: XCTestCase {
@@ -7,7 +8,7 @@ final class RARCommandResolverTests: XCTestCase {
     func testReportsExplicitExecutableAvailability() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let executableURL = workspaceURL.appendingPathComponent("rar")
@@ -33,7 +34,7 @@ final class RARCommandResolverTests: XCTestCase {
     func testFindsExecutableFromPathValue() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let binURL = workspaceURL.appendingPathComponent("bin", isDirectory: true)
@@ -54,7 +55,7 @@ final class RARCommandResolverTests: XCTestCase {
     func testReportsUnavailableWhenExecutableIsMissing() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let resolver = RARCommandResolver(
@@ -70,10 +71,6 @@ final class RARCommandResolverTests: XCTestCase {
     }
 
     private func makeWorkspaceURL() throws -> URL {
-        let url = fileManager.temporaryDirectory
-            .appendingPathComponent("EasyZipResolverTests-\(UUID().uuidString)", isDirectory: true)
-
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        try TemporaryWorkspace.makeURL(prefix: "EasyZipResolverTests", fileManager: fileManager)
     }
 }

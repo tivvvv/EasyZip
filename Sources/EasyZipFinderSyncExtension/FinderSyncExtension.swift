@@ -104,7 +104,7 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
     private func selectedFileURLs() -> [URL] {
         if let selectedURLs = FIFinderSyncController.default().selectedItemURLs(),
            !selectedURLs.isEmpty {
-            return uniqueFileURLs(selectedURLs)
+            return FileURLListNormalizer.uniqueStandardizedFileURLs(selectedURLs)
         }
 
         guard let targetedURL = FIFinderSyncController.default().targetedURL() else {
@@ -169,19 +169,4 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
         return archiveSuffixes.contains { fileName.hasSuffix($0) }
     }
 
-    private func uniqueFileURLs(_ urls: [URL]) -> [URL] {
-        var seenPaths: Set<String> = []
-        var uniqueURLs: [URL] = []
-
-        for url in urls {
-            let standardizedURL = url.standardizedFileURL
-            guard seenPaths.insert(standardizedURL.path).inserted else {
-                continue
-            }
-
-            uniqueURLs.append(standardizedURL)
-        }
-
-        return uniqueURLs
-    }
 }

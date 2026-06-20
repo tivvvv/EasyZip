@@ -56,7 +56,7 @@ public struct FinderActionHandoffStore {
     }
 
     public func write(fileURLs: [URL]) throws -> String {
-        let uniqueFileURLs = uniqueFileURLs(fileURLs)
+        let uniqueFileURLs = FileURLListNormalizer.uniqueStandardizedFileURLs(fileURLs)
         try validateFileURLs(uniqueFileURLs)
 
         let payload = Payload(
@@ -139,7 +139,7 @@ public struct FinderActionHandoffStore {
             throw StoreError.unreadablePayload
         }
 
-        let uniqueFileURLs = uniqueFileURLs(fileURLs)
+        let uniqueFileURLs = FileURLListNormalizer.uniqueStandardizedFileURLs(fileURLs)
         try validateFileURLs(uniqueFileURLs)
         return uniqueFileURLs
     }
@@ -213,21 +213,6 @@ public struct FinderActionHandoffStore {
         }
     }
 
-    private func uniqueFileURLs(_ urls: [URL]) -> [URL] {
-        var seenPaths: Set<String> = []
-        var uniqueURLs: [URL] = []
-
-        for url in urls {
-            let standardizedURL = url.standardizedFileURL
-            guard seenPaths.insert(standardizedURL.path).inserted else {
-                continue
-            }
-
-            uniqueURLs.append(standardizedURL)
-        }
-
-        return uniqueURLs
-    }
 }
 
 private struct Payload: Codable {

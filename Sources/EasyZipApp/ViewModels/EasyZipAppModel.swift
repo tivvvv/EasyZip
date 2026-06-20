@@ -1,5 +1,6 @@
 import AppKit
 import EasyZipCore
+import EasyZipShared
 import Foundation
 import UniformTypeIdentifiers
 
@@ -168,7 +169,7 @@ final class EasyZipAppModel: ObservableObject {
 
             return ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent)
         }
-        selectedItems = uniqueFileURLs(selectedItems + filteredURLs)
+        selectedItems = FileURLListNormalizer.uniqueStandardizedFileURLs(selectedItems + filteredURLs)
         resetProgressIfIdle()
         updateDefaultArchiveName()
         refreshArchivePreview()
@@ -288,7 +289,9 @@ final class EasyZipAppModel: ObservableObject {
         let mergedFileURLs: [URL]
 
         if let pendingExternalSelection, pendingExternalSelection.mode == mode {
-            mergedFileURLs = uniqueFileURLs(pendingExternalSelection.fileURLs + fileURLs)
+            mergedFileURLs = FileURLListNormalizer.uniqueStandardizedFileURLs(
+                pendingExternalSelection.fileURLs + fileURLs
+            )
         } else {
             mergedFileURLs = fileURLs
         }
@@ -309,23 +312,7 @@ final class EasyZipAppModel: ObservableObject {
             return ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent)
         }
 
-        return uniqueFileURLs(filteredURLs)
-    }
-
-    private func uniqueFileURLs(_ urls: [URL]) -> [URL] {
-        var seenPaths: Set<String> = []
-        var uniqueURLs: [URL] = []
-
-        for url in urls {
-            let standardizedURL = url.standardizedFileURL
-            guard seenPaths.insert(standardizedURL.path).inserted else {
-                continue
-            }
-
-            uniqueURLs.append(standardizedURL)
-        }
-
-        return uniqueURLs
+        return FileURLListNormalizer.uniqueStandardizedFileURLs(filteredURLs)
     }
 
     func startOperation() {

@@ -1,4 +1,5 @@
 import XCTest
+import EasyZipTestSupport
 @testable import EasyZipCore
 
 final class LibArchiveEngineTests: XCTestCase {
@@ -32,7 +33,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testDefaultArchiveServiceUsesLibArchiveEngine() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -79,7 +80,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testRARCompressionReportsMissingToolWhenUnavailable() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -106,7 +107,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testRARCompressionCancelsRunningExternalProcess() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -156,7 +157,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testCreateSkipsHiddenFilesByDefault() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -194,7 +195,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testCreateAcceptsCompressionLevelOptions() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -231,7 +232,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractRenamesConflictingFiles() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -274,7 +275,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractCreatesContainingDirectoryWhenRequested() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -307,7 +308,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractsOnlySelectedEntryPaths() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -348,7 +349,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractsSelectedDirectorySubtree() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -389,7 +390,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractsEncryptedZipArchiveWithPassword() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let password = "easyzip-secret"
@@ -457,7 +458,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testAskConflictRequiresResolver() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -502,7 +503,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testAskConflictUsesResolverDecision() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -554,7 +555,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testCreateRejectsDestinationMatchingSource() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = workspaceURL.appendingPathComponent("source.zip")
@@ -582,7 +583,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testCreateRejectsDestinationInsideSourceDirectory() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -608,7 +609,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testCreateKeepsExistingDestinationWhenSourceIsInvalid() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let archiveURL = workspaceURL.appendingPathComponent("existing.zip")
@@ -638,7 +639,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractRejectsExistingSymlinkDirectoryEscape() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -686,7 +687,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testListEntriesMarksHardLink() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let archiveURL = workspaceURL.appendingPathComponent("hard-link.tar")
@@ -713,7 +714,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractRejectsHardLinkEntry() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let archiveURL = workspaceURL.appendingPathComponent("unsafe-hard-link.tar")
@@ -755,7 +756,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractRejectsSpecialFileEntry() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let archiveURL = workspaceURL.appendingPathComponent("special.tar")
@@ -793,7 +794,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractRejectsUnsafeSymbolicLinkTarget() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let archiveURL = workspaceURL.appendingPathComponent("unsafe-symlink.tar")
@@ -920,7 +921,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testCreateReportsByteProgress() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -952,7 +953,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testExtractReportsByteProgress() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -996,7 +997,7 @@ final class LibArchiveEngineTests: XCTestCase {
     func testCreateHonorsCancellation() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -1050,7 +1051,7 @@ private extension LibArchiveEngineTests {
     func assertRoundTrip(format: ArchiveFormat, archiveName: String) async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
@@ -1117,7 +1118,7 @@ private extension LibArchiveEngineTests {
     ) async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let archiveURL = workspaceURL.appendingPathComponent("resource-limit.tar")
@@ -1148,11 +1149,7 @@ private extension LibArchiveEngineTests {
     }
 
     func makeWorkspaceURL() throws -> URL {
-        let url = fileManager.temporaryDirectory
-            .appendingPathComponent("EasyZipTests-\(UUID().uuidString)", isDirectory: true)
-
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        try TemporaryWorkspace.makeURL(fileManager: fileManager)
     }
 
     func makeFixtureSource(in workspaceURL: URL) throws -> URL {

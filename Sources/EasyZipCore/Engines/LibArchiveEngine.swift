@@ -89,7 +89,9 @@ public struct LibArchiveEngine: ArchiveEngine {
         }
 
         let pathValidator = ArchivePathValidator(destinationURL: destinationRootURL)
-        let entrySelector = ExtractionEntrySelector(selectedPaths: request.options.selectedEntryPaths)
+        let entrySelector = LibArchiveExtractionEntrySelector(
+            selectedPaths: request.options.selectedEntryPaths
+        )
         var completedByteCount: Int64 = 0
         var rawEntry: OpaquePointer?
 
@@ -316,47 +318,6 @@ private extension LibArchiveEngine {
         let totalUncompressedByteCount: Int64?
     }
 
-    struct ExtractionEntrySelector {
-        private let selectedPaths: Set<String>
-
-        init(selectedPaths: Set<String>) {
-            self.selectedPaths = Set(
-                selectedPaths
-                    .map(Self.normalizedPath)
-                    .filter { !$0.isEmpty }
-            )
-        }
-
-        func shouldExtract(entryPath: String, fileType: UInt32) -> Bool {
-            guard !selectedPaths.isEmpty else {
-                return true
-            }
-
-            let normalizedEntryPath = Self.normalizedPath(entryPath)
-
-            if selectedPaths.contains(normalizedEntryPath) {
-                return true
-            }
-
-            if selectedPaths.contains(where: { normalizedEntryPath.hasPrefix($0 + "/") }) {
-                return true
-            }
-
-            guard fileType == LibArchiveFileType.directory else {
-                return false
-            }
-
-            return selectedPaths.contains { $0.hasPrefix(normalizedEntryPath + "/") }
-        }
-
-        private static func normalizedPath(_ path: String) -> String {
-            let normalizedPath = path.replacingOccurrences(of: "\\", with: "/")
-            let trimmedPath = normalizedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-            return trimmedPath
-        }
-    }
-
     func scanExtractionPlan(
         in archiveURL: URL,
         destinationRootURL: URL,
@@ -369,7 +330,9 @@ private extension LibArchiveEngine {
         }
 
         let pathValidator = ArchivePathValidator(destinationURL: destinationRootURL)
-        let entrySelector = ExtractionEntrySelector(selectedPaths: options.selectedEntryPaths)
+        let entrySelector = LibArchiveExtractionEntrySelector(
+            selectedPaths: options.selectedEntryPaths
+        )
         var entryCount = 0
         var totalUncompressedByteCount: Int64 = 0
         var hasUnknownUncompressedSize = false
@@ -1605,30 +1568,12 @@ private extension LibArchiveEngine {
     ) -> ArchiveError {
         let message = stringValue(archive_error_string(archive)) ?? "Unknown libarchive error."
 
-        if let passwordError = passwordError(archiveURL: archiveURL, message: message) {
-            return passwordError
-        }
-
-        return .engineFailure(
+        return LibArchiveReadErrorMapper.map(
+            archiveURL: archiveURL,
+            message: message,
             engine: identifier,
-            message: "\(operation): \(message)"
+            operation: operation
         )
-    }
-
-    func passwordError(archiveURL: URL, message: String) -> ArchiveError? {
-        let lowercasedMessage = message.lowercased()
-        guard lowercasedMessage.contains("passphrase")
-            || lowercasedMessage.contains("password") else {
-            return nil
-        }
-
-        if lowercasedMessage.contains("incorrect")
-            || lowercasedMessage.contains("invalid")
-            || lowercasedMessage.contains("wrong") {
-            return .incorrectArchivePassword(archiveURL)
-        }
-
-        return .encryptedArchive(archiveURL)
     }
 
     func stringValue(_ pointer: UnsafePointer<CChar>?) -> String? {

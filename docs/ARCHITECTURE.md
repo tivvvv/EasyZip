@@ -21,7 +21,8 @@
 - 依赖交付: 当前使用 macOS 系统 `libarchive`, 后续如需跨系统版本一致性,
   再评估随 app bundle 携带动态库.
 - 并发模型: Swift Concurrency, 每个归档任务用独立 `Task`, 支持进度回调和取消.
-- 测试: XCTest 覆盖领域模型, 格式识别, 路径安全, 引擎选择, 之后补真实归档 fixture.
+- 测试: XCTest 覆盖领域模型, 格式识别, 路径安全, 引擎选择和共享 handoff 逻辑.
+- 测试支撑: `EasyZipTestSupport` 统一提供临时工作目录等通用测试设施.
 
 ## 分层结构
 
@@ -47,6 +48,7 @@ EasyZip.app
 
 EasyZipShared
   FinderActionHandoffStore
+  FileURLListNormalizer
 
 EasyZipCore
   Domain
@@ -71,6 +73,8 @@ EasyZipCore
 
   Engines
     LibArchiveEngine
+    LibArchiveExtractionEntrySelector
+    LibArchiveReadErrorMapper
     Future engines
 ```
 
@@ -84,6 +88,7 @@ EasyZipCore
 - `ArchiveFormat` 集中维护格式主扩展名, 别名扩展名和 UI 显示名.
 - `DefaultArchiveFormatDetector` 优先读取文件头 magic number, 无法识别时回退扩展名.
 - `ArchiveService.makeDefault()` 默认注册 `LibArchiveEngine` 和 `RARCommandCompressionEngine`.
+- App, Finder Sync extension 和 Finder handoff 共用 `FileURLListNormalizer` 做文件 URL 标准化和去重.
 - 解压默认通过 `ArchivePathValidator` 校验条目路径.
 - 解压写入前会校验目标父目录的符号链接解析结果, 避免通过既有符号链接逃逸.
 - `ArchivePathValidator` 会拒绝路径穿越, Windows drive path, 空组件, 控制字符和 Unicode 双向控制字符.
@@ -93,6 +98,7 @@ EasyZipCore
 - 列表预览会标记 hard link, 但不会在解压阶段创建 hard link.
 - 解压默认创建与归档同名的外层目录, Core 可通过 `ExtractionOptions.shouldCreateContainingDirectory` 关闭.
 - 解压可通过 `ExtractionOptions.selectedEntryPaths` 只处理指定条目或目录子树.
+- 所选条目解压的匹配逻辑由 `LibArchiveExtractionEntrySelector` 独立承载, 便于覆盖目录子树和祖先目录场景.
 - 压缩写入先生成临时归档, 成功关闭后再替换最终目标.
 - libarchive 写入会透传 `CompressionOptions.compressionLevel`, `.tar` 无压缩时忽略该选项.
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; `ask` 需要 resolver 给出明确决策.
@@ -116,6 +122,7 @@ EasyZipCore
 - 任务运行中再次唤起会生成 `PendingExternalSelection`, 菜单栏面板和工作台同步展示并允许稍后应用.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
 - 加密归档解压支持通过 `ExtractionOptions.password` 传入密码, UI 侧会在缺少密码或密码错误时提示输入.
+- libarchive 读取错误由 `LibArchiveReadErrorMapper` 转换为领域错误, 加密和密码错误路径可独立测试.
 - 当前不支持分卷归档.
 
 ## 设计原则

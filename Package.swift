@@ -27,13 +27,17 @@ let package = Package(
                 .linkedLibrary("archive")
             ]
         ),
+        .target(
+            name: "EasyZipTestSupport",
+            path: "Tests/EasyZipTestSupport"
+        ),
         .testTarget(
             name: "EasyZipCoreTests",
-            dependencies: ["EasyZipCore"]
+            dependencies: ["EasyZipCore", "EasyZipTestSupport"]
         ),
         .testTarget(
             name: "EasyZipSharedTests",
-            dependencies: ["EasyZipShared"]
+            dependencies: ["EasyZipShared", "EasyZipTestSupport"]
         ),
         .testTarget(
             name: "EasyZipAppTests",

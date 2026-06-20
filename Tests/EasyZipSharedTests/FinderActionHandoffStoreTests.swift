@@ -1,4 +1,5 @@
 import XCTest
+import EasyZipTestSupport
 @testable import EasyZipShared
 
 final class FinderActionHandoffStoreTests: XCTestCase {
@@ -7,7 +8,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     func testWritesReadsAndRemovesHandoff() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let store = FinderActionHandoffStore(directoryURL: workspaceURL)
@@ -24,7 +25,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     func testWritesHandoffWithPrivatePermissions() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let store = FinderActionHandoffStore(directoryURL: workspaceURL)
@@ -49,7 +50,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     func testRejectsInvalidIdentifier() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let store = FinderActionHandoffStore(directoryURL: workspaceURL)
@@ -62,7 +63,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     func testRejectsExpiredHandoff() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         var currentDate = Date()
@@ -82,7 +83,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     func testRejectsTooManyFileURLsWhenWriting() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let store = FinderActionHandoffStore(directoryURL: workspaceURL, maxFileCount: 1)
@@ -102,7 +103,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     func testRejectsOversizedPayloadWhenWriting() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let store = FinderActionHandoffStore(
@@ -123,7 +124,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     func testRejectsOversizedPayloadWhenReading() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         let handoffId = UUID().uuidString
@@ -149,7 +150,7 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     func testRemovesExpiredHandoffFiles() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
 
         var currentDate = Date()
@@ -184,10 +185,6 @@ final class FinderActionHandoffStoreTests: XCTestCase {
     }
 
     private func makeWorkspaceURL() throws -> URL {
-        let url = fileManager.temporaryDirectory
-            .appendingPathComponent("EasyZipHandoffTests-\(UUID().uuidString)", isDirectory: true)
-
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        try TemporaryWorkspace.makeURL(prefix: "EasyZipHandoffTests", fileManager: fileManager)
     }
 }

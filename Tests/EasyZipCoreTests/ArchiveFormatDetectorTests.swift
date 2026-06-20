@@ -1,4 +1,5 @@
 import XCTest
+import EasyZipTestSupport
 @testable import EasyZipCore
 
 final class ArchiveFormatDetectorTests: XCTestCase {
@@ -85,7 +86,10 @@ final class ArchiveFormatDetectorTests: XCTestCase {
     func testDetectsZipByMagicNumberBeforeExtension() throws {
         let archiveURL = try makeTemporaryFileURL(filename: "renamed.rar")
         defer {
-            try? fileManager.removeItem(at: archiveURL.deletingLastPathComponent())
+            TemporaryWorkspace.remove(
+                archiveURL.deletingLastPathComponent(),
+                fileManager: fileManager
+            )
         }
         try Data([0x50, 0x4B, 0x03, 0x04, 0x00]).write(to: archiveURL)
 
@@ -97,7 +101,7 @@ final class ArchiveFormatDetectorTests: XCTestCase {
     func testDetectsSevenZipAndRARByMagicNumber() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
-            try? fileManager.removeItem(at: workspaceURL)
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
         let sevenZipURL = workspaceURL.appendingPathComponent("archive.data")
         let rarURL = workspaceURL.appendingPathComponent("archive.bin")
@@ -114,7 +118,10 @@ final class ArchiveFormatDetectorTests: XCTestCase {
     func testDetectsTarByMagicNumber() throws {
         let archiveURL = try makeTemporaryFileURL(filename: "archive.data")
         defer {
-            try? fileManager.removeItem(at: archiveURL.deletingLastPathComponent())
+            TemporaryWorkspace.remove(
+                archiveURL.deletingLastPathComponent(),
+                fileManager: fileManager
+            )
         }
         var bytes = [UInt8](repeating: 0, count: 512)
         bytes.replaceSubrange(257..<262, with: [0x75, 0x73, 0x74, 0x61, 0x72])
@@ -130,10 +137,6 @@ final class ArchiveFormatDetectorTests: XCTestCase {
     }
 
     private func makeWorkspaceURL() throws -> URL {
-        let url = fileManager.temporaryDirectory
-            .appendingPathComponent("EasyZipFormatTests-\(UUID().uuidString)", isDirectory: true)
-
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        try TemporaryWorkspace.makeURL(prefix: "EasyZipFormatTests", fileManager: fileManager)
     }
 }

@@ -467,7 +467,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             urls.append(contentsOf: fileURLs(fromPlainText: text))
         }
 
-        return uniqueFileURLs(urls)
+        return FileURLListNormalizer.uniqueStandardizedFileURLs(urls)
     }
 
     private func fileURLs(fromPlainText text: String) -> [URL] {
@@ -485,22 +485,6 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
                 return URL(fileURLWithPath: value)
             }
-    }
-
-    private func uniqueFileURLs(_ urls: [URL]) -> [URL] {
-        var seenPaths: Set<String> = []
-        var uniqueURLs: [URL] = []
-
-        for url in urls {
-            let standardizedURL = url.standardizedFileURL
-            guard seenPaths.insert(standardizedURL.path).inserted else {
-                continue
-            }
-
-            uniqueURLs.append(standardizedURL)
-        }
-
-        return uniqueURLs
     }
 
 }
