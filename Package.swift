@@ -33,7 +33,10 @@ let package = Package(
         ),
         .testTarget(
             name: "EasyZipCoreTests",
-            dependencies: ["EasyZipCore", "EasyZipTestSupport"]
+            dependencies: ["EasyZipCore", "EasyZipTestSupport"],
+            resources: [
+                .copy("Fixtures")
+            ]
         ),
         .testTarget(
             name: "EasyZipSharedTests",
