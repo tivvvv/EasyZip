@@ -60,6 +60,22 @@ struct ArchiveEntryRow: Identifiable {
         risk?.sortOrder ?? 0
     }
 
+    var isFile: Bool {
+        if case .file = kind {
+            return true
+        }
+
+        return false
+    }
+
+    var isDirectory: Bool {
+        if case .directory = kind {
+            return true
+        }
+
+        return false
+    }
+
     var canSelectForExtraction: Bool {
         switch kind {
         case .file, .directory, .symbolicLink:

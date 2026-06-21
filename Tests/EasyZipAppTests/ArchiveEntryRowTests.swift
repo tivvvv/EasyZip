@@ -18,6 +18,8 @@ final class ArchiveEntryRowTests: XCTestCase {
         XCTAssertEqual(row.depth, 2)
         XCTAssertEqual(row.kindTitle, "文件")
         XCTAssertEqual(row.uncompressedSize, 128)
+        XCTAssertTrue(row.isFile)
+        XCTAssertFalse(row.isDirectory)
         XCTAssertNil(row.risk)
         XCTAssertTrue(row.matches("nested"))
         XCTAssertTrue(row.matches("文件"))

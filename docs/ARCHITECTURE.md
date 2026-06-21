@@ -114,7 +114,8 @@ EasyZipCore
 - libarchive 写入会透传 `CompressionOptions.compressionLevel`, `.tar` 无压缩时忽略该选项.
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; `ask` 需要 resolver 给出明确决策.
 - 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
-- 归档预览支持搜索过滤, 多维排序, 层级缩进, 汇总统计, 风险条目标记和所选条目解压.
+- 归档预览支持搜索过滤, 多维排序, 层级缩进, 汇总统计, 条目详情, 风险条目标记和所选条目解压.
+- 归档预览支持多选快捷操作, 可按当前结果, 文件, 目录和风险项快速生成解压选择.
 - 压缩密码通过 `CompressionOptions.password` 传入, 当前仅 ZIP 使用 libarchive 写入 AES-256 加密.
 - RAR 加密压缩暂不支持, 避免通过外部命令参数暴露密码.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
@@ -184,6 +185,6 @@ EasyZipCore
   作为 fallback.
 - RAR 兼容性: 如 libarchive 对部分 RAR 变体不足, 增加 `UnarEngine` 或 `XADEngine` 作为解压 fallback.
 - tar 系列: 已通过现有 `LibArchiveEngine` 接入, 后续可继续增加 `.tar.zst`.
-- 归档预览: 已接入所选条目解压, 后续可继续补条目详情面板和多选快捷操作.
+- 归档预览: 已接入所选条目解压, 条目详情面板和多选快捷操作.
 - Finder 扩展: 已新增 Finder Sync extension, 后续可接 App Group 或 XPC 传递更大批量的选择.
 - 沙盒分发: `EasyZipShared` 已保留 App Group handoff 目录入口, 后续开启 App Sandbox 时切换容器.

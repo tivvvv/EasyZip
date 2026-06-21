@@ -504,6 +504,32 @@ final class EasyZipAppModel: ObservableObject {
         selectedArchiveEntryPaths.formUnion(selectablePaths)
     }
 
+    func replaceArchiveEntrySelection(with rows: [ArchiveEntryRow]) {
+        selectedArchiveEntryPaths = selectablePathSet(from: rows)
+    }
+
+    func replaceArchiveEntrySelectionWithFiles(in rows: [ArchiveEntryRow]) {
+        replaceArchiveEntrySelection(with: rows.filter(\.isFile))
+    }
+
+    func replaceArchiveEntrySelectionWithDirectories(in rows: [ArchiveEntryRow]) {
+        replaceArchiveEntrySelection(with: rows.filter(\.isDirectory))
+    }
+
+    func replaceArchiveEntrySelectionWithRiskEntries(in rows: [ArchiveEntryRow]) {
+        replaceArchiveEntrySelection(with: rows.filter { $0.risk != nil })
+    }
+
+    func invertArchiveEntrySelection(in rows: [ArchiveEntryRow]) {
+        for path in selectablePathSet(from: rows) {
+            if selectedArchiveEntryPaths.contains(path) {
+                selectedArchiveEntryPaths.remove(path)
+            } else {
+                selectedArchiveEntryPaths.insert(path)
+            }
+        }
+    }
+
     func clearArchiveEntrySelection() {
         selectedArchiveEntryPaths.removeAll()
     }
@@ -555,6 +581,10 @@ final class EasyZipAppModel: ObservableObject {
 
     private var selectedArchiveEntryRows: [ArchiveEntryRow] {
         archiveEntries.filter { selectedArchiveEntryPaths.contains($0.path) }
+    }
+
+    private func selectablePathSet(from rows: [ArchiveEntryRow]) -> Set<String> {
+        Set(rows.filter(\.canSelectForExtraction).map(\.path))
     }
 
     private var requiresRARCommand: Bool {

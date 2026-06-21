@@ -6,6 +6,7 @@ struct ArchivePreviewView: View {
     @State private var searchText = ""
     @State private var sortField: ArchivePreviewSortField = .name
     @State private var sortDescending = false
+    @State private var focusedEntryPath: String?
 
     private var visibleRows: [ArchiveEntryRow] {
         sortedRows(model.archiveEntries.filter { $0.matches(searchText) })
@@ -13,6 +14,31 @@ struct ArchivePreviewView: View {
 
     private var visibleSelectableRows: [ArchiveEntryRow] {
         visibleRows.filter(\.canSelectForExtraction)
+    }
+
+    private var visibleFileRows: [ArchiveEntryRow] {
+        visibleRows.filter(\.isFile)
+    }
+
+    private var visibleDirectoryRows: [ArchiveEntryRow] {
+        visibleRows.filter(\.isDirectory)
+    }
+
+    private var visibleRiskRows: [ArchiveEntryRow] {
+        visibleRows.filter { $0.risk != nil && $0.canSelectForExtraction }
+    }
+
+    private var focusedRow: ArchiveEntryRow? {
+        if let focusedEntryPath,
+           let row = model.archiveEntries.first(where: { $0.path == focusedEntryPath }) {
+            return row
+        }
+
+        if let selectedPath = model.selectedArchiveEntryPaths.sorted().first {
+            return model.archiveEntries.first { $0.path == selectedPath }
+        }
+
+        return nil
     }
 
     private var summary: ArchivePreviewSummary {
@@ -43,6 +69,10 @@ struct ArchivePreviewView: View {
                         PreviewEmptyState(text: "没有匹配条目")
                     } else {
                         previewTable
+                        if let focusedRow {
+                            Divider()
+                            entryDetailPanel(focusedRow)
+                        }
                     }
                 }
             } else {
@@ -76,21 +106,63 @@ struct ArchivePreviewView: View {
             }
             .help(sortDescending ? "降序" : "升序")
 
-            Button {
-                model.selectArchiveEntries(visibleRows)
-            } label: {
-                Image(systemName: "checkmark.square")
-            }
-            .disabled(visibleSelectableRows.isEmpty || model.isRunning)
-            .help("选择当前结果")
+            Menu {
+                Button {
+                    model.replaceArchiveEntrySelection(with: visibleRows)
+                } label: {
+                    Label("选择当前结果", systemImage: "checkmark.square")
+                }
+                .disabled(visibleSelectableRows.isEmpty)
 
-            Button {
-                model.clearArchiveEntrySelection()
+                Button {
+                    model.selectArchiveEntries(visibleRows)
+                } label: {
+                    Label("追加当前结果", systemImage: "plus.square.on.square")
+                }
+                .disabled(visibleSelectableRows.isEmpty)
+
+                Button {
+                    model.invertArchiveEntrySelection(in: visibleRows)
+                } label: {
+                    Label("反选当前结果", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(visibleSelectableRows.isEmpty)
+
+                Divider()
+
+                Button {
+                    model.replaceArchiveEntrySelectionWithFiles(in: visibleRows)
+                } label: {
+                    Label("只选文件", systemImage: "doc")
+                }
+                .disabled(visibleFileRows.isEmpty)
+
+                Button {
+                    model.replaceArchiveEntrySelectionWithDirectories(in: visibleRows)
+                } label: {
+                    Label("只选目录", systemImage: "folder")
+                }
+                .disabled(visibleDirectoryRows.isEmpty)
+
+                Button {
+                    model.replaceArchiveEntrySelectionWithRiskEntries(in: visibleRows)
+                } label: {
+                    Label("只选风险项", systemImage: "exclamationmark.triangle")
+                }
+                .disabled(visibleRiskRows.isEmpty)
+
+                Divider()
+
+                Button {
+                    model.clearArchiveEntrySelection()
+                } label: {
+                    Label("清空选择", systemImage: "xmark.square")
+                }
+                .disabled(model.selectedArchiveEntryCount == 0)
             } label: {
-                Image(systemName: "xmark.square")
+                Label("选择", systemImage: "checklist")
             }
-            .disabled(model.selectedArchiveEntryCount == 0 || model.isRunning)
-            .help("清空选择")
+            .disabled(model.isRunning || (visibleSelectableRows.isEmpty && model.selectedArchiveEntryCount == 0))
         }
     }
 
@@ -127,6 +199,7 @@ struct ArchivePreviewView: View {
                             model.isArchiveEntrySelected(row)
                         },
                         set: { isSelected in
+                            focusedEntryPath = row.path
                             model.setArchiveEntrySelection(row, isSelected: isSelected)
                         }
                     )
@@ -136,6 +209,18 @@ struct ArchivePreviewView: View {
                 .help(row.selectionDisabledReason ?? "选择条目")
             }
             .width(36)
+
+            TableColumn("") { row in
+                Button {
+                    focusedEntryPath = row.path
+                } label: {
+                    Image(systemName: focusedEntryPath == row.path ? "info.circle.fill" : "info.circle")
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.borderless)
+                .help("查看详情")
+            }
+            .width(34)
 
             TableColumn("名称") { row in
                 HStack(spacing: 8) {
@@ -196,6 +281,50 @@ struct ArchivePreviewView: View {
             }
             .width(70)
         }
+    }
+
+    private func entryDetailPanel(_ row: ArchiveEntryRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label("条目详情", systemImage: "info.circle")
+                    .fontWeight(.semibold)
+
+                Spacer(minLength: 0)
+
+                if row.canSelectForExtraction {
+                    Button {
+                        let shouldSelect = !model.isArchiveEntrySelected(row)
+                        focusedEntryPath = row.path
+                        model.setArchiveEntrySelection(row, isSelected: shouldSelect)
+                    } label: {
+                        Label(
+                            model.isArchiveEntrySelected(row) ? "取消选择" : "选择条目",
+                            systemImage: model.isArchiveEntrySelected(row)
+                                ? "minus.circle"
+                                : "checkmark.circle"
+                        )
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(model.isRunning)
+                }
+            }
+
+            EntryDetailLine(title: "路径", value: row.path, isMonospaced: true)
+            EntryDetailLine(title: "类型", value: row.kindTitle)
+            EntryDetailLine(title: "大小", value: row.detail)
+            EntryDetailLine(title: "修改时间", value: row.modifiedText)
+
+            if let linkTarget = row.linkTarget {
+                EntryDetailLine(title: "链接目标", value: linkTarget, isMonospaced: true)
+            }
+
+            if let risk = row.risk {
+                Label(risk.detail, systemImage: risk.iconName)
+                    .foregroundStyle(risk.sortOrder == 1 ? .orange : .red)
+                    .lineLimit(2)
+            }
+        }
+        .font(.caption)
     }
 
     private func iconName(for kind: ArchiveEntryKind) -> String {
@@ -372,6 +501,27 @@ private struct PreviewEmptyState: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct EntryDetailLine: View {
+    let title: String
+    let value: String
+    var isMonospaced = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(title)
+                .foregroundStyle(.secondary)
+                .frame(width: 60, alignment: .leading)
+
+            Text(value)
+                .font(isMonospaced ? .system(.caption, design: .monospaced) : .caption)
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            Spacer(minLength: 0)
+        }
     }
 }
 
