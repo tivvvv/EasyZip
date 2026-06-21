@@ -13,6 +13,10 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
                 name: "rar",
                 executableURL: URL(fileURLWithPath: "/usr/local/bin/rar")
             ),
+            zstdAvailability: ExternalToolAvailability(
+                name: "zstd",
+                executableURL: URL(fileURLWithPath: "/usr/local/bin/zstd")
+            ),
             codeSignatureStatus: .normal
         )
 
@@ -23,6 +27,7 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(model.item(with: .finderExtension)?.status, .unsupported)
         XCTAssertEqual(model.item(with: .notificationPermission)?.status, .normal)
         XCTAssertEqual(model.item(with: .rarCommand)?.status, .normal)
+        XCTAssertEqual(model.item(with: .zstdCommand)?.status, .normal)
         XCTAssertEqual(model.item(with: .defaultOutputDirectory)?.status, .normal)
         XCTAssertEqual(model.item(with: .codeSignature)?.status, .normal)
     }
@@ -36,6 +41,7 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
             bundleURL: URL(fileURLWithPath: "/tmp/易压缩.app", isDirectory: true),
             notificationStatus: .denied,
             rarAvailability: ExternalToolAvailability(name: "rar", executableURL: nil),
+            zstdAvailability: ExternalToolAvailability(name: "zstd", executableURL: nil),
             codeSignatureStatus: .needsAction
         )
 
@@ -47,6 +53,8 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(model.item(with: .notificationPermission)?.action, .openNotificationSettings)
         XCTAssertEqual(model.item(with: .rarCommand)?.status, .needsAction)
         XCTAssertNil(model.item(with: .rarCommand)?.action)
+        XCTAssertEqual(model.item(with: .zstdCommand)?.status, .needsAction)
+        XCTAssertNil(model.item(with: .zstdCommand)?.action)
         XCTAssertEqual(model.item(with: .defaultOutputDirectory)?.status, .needsAction)
         XCTAssertEqual(model.item(with: .defaultOutputDirectory)?.action, .openSettings)
         XCTAssertEqual(model.item(with: .codeSignature)?.status, .needsAction)
@@ -69,6 +77,10 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
             name: "rar",
             executableURL: URL(fileURLWithPath: "/usr/local/bin/rar")
         ),
+        zstdAvailability: ExternalToolAvailability = ExternalToolAvailability(
+            name: "zstd",
+            executableURL: URL(fileURLWithPath: "/usr/local/bin/zstd")
+        ),
         codeSignatureStatus: EasyZipDiagnosticStatus = .normal
     ) -> EasyZipDiagnosticsModel {
         EasyZipDiagnosticsModel(
@@ -76,6 +88,7 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
             bundleURL: bundleURL,
             notificationAuthorizationStatusProvider: { notificationStatus },
             rarAvailabilityProvider: { rarAvailability },
+            zstdAvailabilityProvider: { zstdAvailability },
             codeSignatureStatusProvider: { _ in codeSignatureStatus }
         )
     }

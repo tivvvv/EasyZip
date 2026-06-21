@@ -57,6 +57,7 @@ final class EasyZipAppModel: ObservableObject {
     @Published var isDropTargeted = false
     @Published var taskResult: TaskResult?
     @Published private(set) var rarCommandAvailability = RARCommandResolver().availability()
+    @Published private(set) var zstdCommandAvailability = ZstdCommandResolver().availability()
     @Published private(set) var recentTasks = RecentArchiveStore.loadTasks()
     @Published private(set) var recentOutputDirectories = RecentArchiveStore.loadOutputDirectories()
     @Published private(set) var pendingExternalSelection: PendingExternalSelection?
@@ -66,16 +67,25 @@ final class EasyZipAppModel: ObservableObject {
     private var operationTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private let settings: EasyZipAppSettings
-    private let rarCommandResolver = RARCommandResolver()
+    private let rarCommandResolver: RARCommandResolver
+    private let zstdCommandResolver: ZstdCommandResolver
     private var settingsCancellables: Set<AnyCancellable> = []
     private var extractionPassword: String?
 
-    init(settings: EasyZipAppSettings = .shared) {
+    init(
+        settings: EasyZipAppSettings = .shared,
+        rarCommandResolver: RARCommandResolver = RARCommandResolver(),
+        zstdCommandResolver: ZstdCommandResolver = ZstdCommandResolver()
+    ) {
         self.settings = settings
+        self.rarCommandResolver = rarCommandResolver
+        self.zstdCommandResolver = zstdCommandResolver
         outputDirectory = settings.effectiveDefaultOutputDirectory
         selectedFormat = settings.defaultCompressionFormat
         overwritePolicy = settings.defaultOverwritePolicy
         shouldCreateContainingDirectory = settings.shouldCreateContainingDirectory
+        rarCommandAvailability = rarCommandResolver.availability()
+        zstdCommandAvailability = zstdCommandResolver.availability()
         observeSettings()
     }
 
@@ -93,25 +103,25 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     var formatRequirementStatus: (title: String, detail: String, iconName: String, isBlocking: Bool)? {
-        guard requiresRARCommand else {
-            return nil
-        }
-
-        if let executableURL = rarCommandAvailability.executableURL {
-            return (
-                title: "RAR 命令可用",
-                detail: executableURL.path,
-                iconName: "checkmark.circle",
-                isBlocking: false
+        if requiresRARCommand {
+            return externalToolRequirementStatus(
+                availability: rarCommandAvailability,
+                availableTitle: "RAR 命令可用",
+                missingTitle: "需要安装 rar 命令",
+                missingDetail: "安装 RAR 命令行工具后可创建 .rar 归档"
             )
         }
 
-        return (
-            title: "需要安装 rar 命令",
-            detail: "安装 RAR 命令行工具后可创建 .rar 归档",
-            iconName: "exclamationmark.triangle",
-            isBlocking: true
-        )
+        if requiresZstdCommand {
+            return externalToolRequirementStatus(
+                availability: zstdCommandAvailability,
+                availableTitle: "zstd 命令可用",
+                missingTitle: "需要安装 zstd 命令",
+                missingDetail: "安装 zstd 命令行工具后可创建 .tar.zst 归档"
+            )
+        }
+
+        return nil
     }
 
     var canEncryptCompression: Bool {
@@ -464,6 +474,7 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         rarCommandAvailability = rarCommandResolver.availability()
+        zstdCommandAvailability = zstdCommandResolver.availability()
     }
 
     func revealOutputInFinder() {
@@ -591,8 +602,36 @@ final class EasyZipAppModel: ObservableObject {
         mode == .compress && selectedFormat == .rar
     }
 
+    private var requiresZstdCommand: Bool {
+        mode == .compress && selectedFormat == .tarZstd
+    }
+
     private var requiredExternalToolsAreAvailable: Bool {
-        !requiresRARCommand || rarCommandAvailability.isAvailable
+        (!requiresRARCommand || rarCommandAvailability.isAvailable)
+            && (!requiresZstdCommand || zstdCommandAvailability.isAvailable)
+    }
+
+    private func externalToolRequirementStatus(
+        availability: ExternalToolAvailability,
+        availableTitle: String,
+        missingTitle: String,
+        missingDetail: String
+    ) -> (title: String, detail: String, iconName: String, isBlocking: Bool) {
+        if let executableURL = availability.executableURL {
+            return (
+                title: availableTitle,
+                detail: executableURL.path,
+                iconName: "checkmark.circle",
+                isBlocking: false
+            )
+        }
+
+        return (
+            title: missingTitle,
+            detail: missingDetail,
+            iconName: "exclamationmark.triangle",
+            isBlocking: true
+        )
     }
 
     private func observeSettings() {
@@ -688,19 +727,21 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     private func reportMissingRequiredExternalTool() {
+        let toolName = requiresRARCommand ? RARCommandResolver.toolName : ZstdCommandResolver.toolName
+        let title = requiresRARCommand ? "RAR 压缩不可用" : "TAR.ZST 压缩不可用"
         let message = ArchiveErrorMessageFormatter.message(
-            for: ArchiveError.externalToolUnavailable(RARCommandResolver.toolName)
+            for: ArchiveError.externalToolUnavailable(toolName)
         )
 
         taskResult = TaskResult(
-            title: "RAR 压缩不可用",
+            title: title,
             detail: message,
             outputURL: nil,
             iconName: "exclamationmark.triangle"
         )
         progressFraction = 0
         progressText = "等待外部工具"
-        alert = AppAlert(title: "RAR 压缩不可用", message: message)
+        alert = AppAlert(title: title, message: message)
     }
 
     private func updateDefaultArchiveName() {

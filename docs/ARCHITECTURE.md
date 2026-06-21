@@ -2,7 +2,7 @@
 
 ## 第一期目标
 
-- 支持 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz` 的列表预览, 解压, 压缩.
+- 支持 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` 的列表预览, 解压, 压缩.
 - 支持 `.rar` 的列表预览和解压; RAR 压缩通过外部 `rar` 命令提供.
 - 先不做加密压缩, 分卷压缩和云盘同步.
 - 核心能力必须和 UI 解耦, 后续新增 RAR, 单文件 gzip, 单文件 xz 等格式时只增加引擎或格式适配.
@@ -17,6 +17,7 @@
 - 共享模块: Swift Package `EasyZipShared`, 放置 App 和 Finder Sync extension 共用的轻量逻辑.
 - 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖常见归档格式的读写.
 - RAR 压缩: 系统 `libarchive` 不提供 RAR writer, 因此通过可选外部 `rar` 命令接入.
+- Zstandard 压缩: 当前 macOS `libarchive` 通过外部 `zstd` 程序提供 `.tar.zst` 写入能力.
 - App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`, 默认 ad-hoc 签名.
 - 产物检查: 通过 `Scripts/check_app_bundle.sh` 校验 `.app` 结构, plist 字段, Finder Sync extension 和签名.
 - DMG 交付: 通过 `Scripts/package_dmg.sh` 生成安装包, 通过 `Scripts/check_dmg.sh` 校验挂载内容.
@@ -90,11 +91,12 @@ EasyZipCore
 
 ## 当前实现
 
-- `LibArchiveEngine` 已实现 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz` 的列表读取,
+- `LibArchiveEngine` 已实现 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` 的列表读取,
   解压和压缩.
 - `LibArchiveEngine` 已实现 `.rar` 的列表读取和解压.
 - `RARCommandCompressionEngine` 已实现 `.rar` 创建的外部命令适配; 未安装 `rar` 时返回明确错误.
 - `RARCommandResolver` 集中检测外部 `rar` 命令, UI 和 RAR 压缩引擎共用同一判断.
+- `ZstdCommandResolver` 集中检测外部 `zstd` 命令, UI 会在创建 `.tar.zst` 前给出明确提示.
 - `ArchiveFormat` 集中维护格式主扩展名, 别名扩展名和 UI 显示名.
 - `ArchiveFormat.supportsEncryptedCompression` 集中声明当前可加密写入的格式.
 - `DefaultArchiveFormatDetector` 优先读取文件头 magic number, 无法识别时回退扩展名.
@@ -113,7 +115,7 @@ EasyZipCore
 - 压缩写入先生成临时归档, 成功关闭后再替换最终目标.
 - libarchive 写入会透传 `CompressionOptions.compressionLevel`, `.tar` 无压缩时忽略该选项.
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; `ask` 需要 resolver 给出明确决策.
-- 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
+- 图形界面在选择 RAR 或 TAR.ZST 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
 - 归档预览支持搜索过滤, 多维排序, 层级缩进, 汇总统计, 条目详情, 风险条目标记和所选条目解压.
 - 归档预览支持多选快捷操作, 可按当前结果, 文件, 目录和风险项快速生成解压选择.
 - 压缩密码通过 `CompressionOptions.password` 传入, 当前仅 ZIP 使用 libarchive 写入 AES-256 加密.
@@ -125,7 +127,7 @@ EasyZipCore
 - `EasyZipOnboardingState` 使用 `UserDefaults` 记录首次启动引导完成状态.
 - 首次启动引导由 AppDelegate 按需创建独立窗口, 完成或关闭后不再自动展示.
 - 菜单栏状态面板可重新打开首次启动引导.
-- `EasyZipDiagnosticsModel` 汇总安装位置, Finder Sync, 通知权限, RAR 命令, 默认输出目录和签名状态.
+- `EasyZipDiagnosticsModel` 汇总安装位置, Finder Sync, 通知权限, RAR 命令, zstd 命令, 默认输出目录和签名状态.
 - Finder Sync 启用状态不做不稳定推断, 诊断页提供扩展设置入口让用户确认.
 - 诊断页可从菜单栏状态面板和设置页打开.
 - `ArchiveTaskRunner` 负责 UI 层任务编排, `EasyZipAppModel` 只保留状态流转和用户操作入口.
@@ -184,7 +186,7 @@ EasyZipCore
 - 7z 疑难兼容: 如果 libarchive 在加密 7z 或特殊压缩方法上不足, 增加 `SevenZipEngine`
   作为 fallback.
 - RAR 兼容性: 如 libarchive 对部分 RAR 变体不足, 增加 `UnarEngine` 或 `XADEngine` 作为解压 fallback.
-- tar 系列: 已通过现有 `LibArchiveEngine` 接入, 后续可继续增加 `.tar.zst`.
+- tar 系列: 已通过现有 `LibArchiveEngine` 接入 `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz` 和 `.tar.zst`.
 - 归档预览: 已接入所选条目解压, 条目详情面板和多选快捷操作.
 - Finder 扩展: 已新增 Finder Sync extension, 后续可接 App Group 或 XPC 传递更大批量的选择.
 - 沙盒分发: `EasyZipShared` 已保留 App Group handoff 目录入口, 后续开启 App Sandbox 时切换容器.

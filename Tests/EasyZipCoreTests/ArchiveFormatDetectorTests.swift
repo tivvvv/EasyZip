@@ -67,6 +67,16 @@ final class ArchiveFormatDetectorTests: XCTestCase {
         XCTAssertEqual(aliasFormat, .tarXz)
     }
 
+    func testDetectsTarZstdByCompoundExtensionAndAlias() throws {
+        let detector = DefaultArchiveFormatDetector()
+
+        let compoundFormat = try detector.detectFormat(for: URL(fileURLWithPath: "/tmp/example.tar.zst"))
+        let aliasFormat = try detector.detectFormat(for: URL(fileURLWithPath: "/tmp/example.tzst"))
+
+        XCTAssertEqual(compoundFormat, .tarZstd)
+        XCTAssertEqual(aliasFormat, .tarZstd)
+    }
+
     func testRemovesCompoundArchiveExtension() {
         let baseName = ArchiveFormat.removingArchiveExtension(from: "example.tar.gz")
 
@@ -137,6 +147,19 @@ final class ArchiveFormatDetectorTests: XCTestCase {
         let format = try DefaultArchiveFormatDetector().detectFormat(for: archiveURL)
 
         XCTAssertEqual(format, .tar)
+    }
+
+    func testDetectsCompressedTarFormatsByMagicNumber() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+        let zstdURL = workspaceURL.appendingPathComponent("archive.zstd-data")
+        try Data([0x28, 0xB5, 0x2F, 0xFD, 0x00]).write(to: zstdURL)
+
+        let format = try DefaultArchiveFormatDetector().detectFormat(for: zstdURL)
+
+        XCTAssertEqual(format, .tarZstd)
     }
 
     private func makeTemporaryFileURL(filename: String) throws -> URL {

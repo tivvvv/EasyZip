@@ -560,6 +560,9 @@ private extension LibArchiveEngine {
         case .tarXz:
             try configureTarWriter(archive, filter: archive_write_add_filter_xz, filterName: "xz")
             try setFilterCompressionLevel(archive, options: request.options)
+        case .tarZstd:
+            try configureTarWriter(archive, filter: archive_write_add_filter_zstd, filterName: "zstd")
+            try setFilterCompressionLevel(archive, options: request.options)
         }
     }
 
@@ -614,11 +617,17 @@ private extension LibArchiveEngine {
             archive: archive,
             operation: "enable tar writer"
         )
-        try require(
+        try requireFilterStatus(
             filter(archive),
             archive: archive,
             operation: "enable \(filterName) filter"
         )
+    }
+
+    func archive_write_add_filter_zstd(_ archive: OpaquePointer?) -> Int32 {
+        "zstd".withCString { name in
+            archive_write_add_filter_by_name(archive, name)
+        }
     }
 
     func setFormatCompressionLevel(
@@ -1580,6 +1589,16 @@ private extension LibArchiveEngine {
         operation: String
     ) throws {
         guard status == LibArchiveStatus.ok else {
+            throw engineFailure(archive: archive, operation: operation)
+        }
+    }
+
+    func requireFilterStatus(
+        _ status: Int32,
+        archive: OpaquePointer,
+        operation: String
+    ) throws {
+        guard status == LibArchiveStatus.ok || status == LibArchiveStatus.warning else {
             throw engineFailure(archive: archive, operation: operation)
         }
     }

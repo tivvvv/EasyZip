@@ -23,7 +23,7 @@ enum ArchiveErrorMessageFormatter {
         case .unsupportedEncryptedCompression(let format):
             return "该格式暂不支持加密压缩: .\(format.fileExtension)"
         case .externalToolUnavailable(let toolName):
-            return "未找到外部工具: \(toolName), RAR 压缩需要安装 RAR 命令行工具"
+            return "未找到外部工具: \(toolName), 请先安装对应命令行工具"
         case .conflictRequiresDecision(let url):
             return "目标已存在, 需要选择冲突处理方式: \(url.path)"
         case .unsupportedEntryType(let path, let type):

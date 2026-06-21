@@ -30,6 +30,12 @@ final class LibArchiveEngineTests: XCTestCase {
         try await assertRoundTrip(format: .tarXz, archiveName: "sample.tar.xz")
     }
 
+    func testCreatesListsAndExtractsTarZstdArchive() async throws {
+        try skipIfZstdCommandIsUnavailable()
+
+        try await assertRoundTrip(format: .tarZstd, archiveName: "sample.tar.zst")
+    }
+
     func testDefaultArchiveServiceUsesLibArchiveEngine() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -228,7 +234,7 @@ final class LibArchiveEngineTests: XCTestCase {
 
         let sourceURL = try makeFixtureSource(in: workspaceURL)
         let engine = LibArchiveEngine()
-        let cases: [(ArchiveFormat, String, CompressionLevel)] = [
+        var cases: [(ArchiveFormat, String, CompressionLevel)] = [
             (.zip, "zip-fastest.zip", .fastest),
             (.zip, "zip-maximum.zip", .maximum),
             (.zip, "zip-custom.zip", .custom(42)),
@@ -238,6 +244,9 @@ final class LibArchiveEngineTests: XCTestCase {
             (.tarBzip2, "bzip2-maximum.tar.bz2", .maximum),
             (.tarXz, "xz-custom.tar.xz", .custom(9))
         ]
+        if ZstdCommandResolver().availability().isAvailable {
+            cases.append((.tarZstd, "zstd-custom.tar.zst", .custom(9)))
+        }
 
         for (format, archiveName, level) in cases {
             let archiveURL = workspaceURL.appendingPathComponent(archiveName)
@@ -1285,6 +1294,12 @@ private extension LibArchiveEngineTests {
 
     func makeWorkspaceURL() throws -> URL {
         try TemporaryWorkspace.makeURL(fileManager: fileManager)
+    }
+
+    func skipIfZstdCommandIsUnavailable() throws {
+        guard ZstdCommandResolver().availability().isAvailable else {
+            throw XCTSkip("zstd command is unavailable.")
+        }
     }
 
     func makeFixtureSource(in workspaceURL: URL) throws -> URL {

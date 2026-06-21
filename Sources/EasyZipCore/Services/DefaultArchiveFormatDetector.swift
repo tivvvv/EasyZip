@@ -51,6 +51,10 @@ public struct DefaultArchiveFormatDetector: ArchiveFormatDetecting {
             return .tarXz
         }
 
+        if data.starts(with: [0x28, 0xB5, 0x2F, 0xFD]) {
+            return .tarZstd
+        }
+
         if data.count >= 262 {
             let marker = data[257..<262]
             if marker.elementsEqual([0x75, 0x73, 0x74, 0x61, 0x72]) {

@@ -1,6 +1,7 @@
 import Foundation
 
 enum LibArchiveStatus {
+    static let warning: Int32 = -20
     static let ok: Int32 = 0
     static let eof: Int32 = 1
 }
@@ -119,6 +120,12 @@ func archive_write_add_filter_bzip2(_ archive: OpaquePointer?) -> Int32
 
 @_silgen_name("archive_write_add_filter_xz")
 func archive_write_add_filter_xz(_ archive: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_write_add_filter_by_name")
+func archive_write_add_filter_by_name(
+    _ archive: OpaquePointer?,
+    _ name: UnsafePointer<CChar>?
+) -> Int32
 
 @_silgen_name("archive_write_open_filename")
 func archive_write_open_filename(

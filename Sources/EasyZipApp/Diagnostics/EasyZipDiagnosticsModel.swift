@@ -7,6 +7,7 @@ enum EasyZipDiagnosticID: String, CaseIterable, Sendable {
     case finderExtension
     case notificationPermission
     case rarCommand
+    case zstdCommand
     case defaultOutputDirectory
     case codeSignature
 }
@@ -81,6 +82,7 @@ final class EasyZipDiagnosticsModel: ObservableObject {
     private let bundleURL: URL
     private let notificationAuthorizationStatusProvider: () async -> UNAuthorizationStatus
     private let rarAvailabilityProvider: () -> ExternalToolAvailability
+    private let zstdAvailabilityProvider: () -> ExternalToolAvailability
     private let codeSignatureStatusProvider: (URL) async -> EasyZipDiagnosticStatus
 
     init(
@@ -91,6 +93,9 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         rarAvailabilityProvider: @escaping () -> ExternalToolAvailability = {
             RARCommandResolver().availability()
         },
+        zstdAvailabilityProvider: @escaping () -> ExternalToolAvailability = {
+            ZstdCommandResolver().availability()
+        },
         codeSignatureStatusProvider: @escaping (URL) async -> EasyZipDiagnosticStatus =
             EasyZipDiagnosticsModel.currentCodeSignatureStatus
     ) {
@@ -98,6 +103,7 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         self.bundleURL = bundleURL
         self.notificationAuthorizationStatusProvider = notificationAuthorizationStatusProvider
         self.rarAvailabilityProvider = rarAvailabilityProvider
+        self.zstdAvailabilityProvider = zstdAvailabilityProvider
         self.codeSignatureStatusProvider = codeSignatureStatusProvider
     }
 
@@ -107,12 +113,14 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         let notificationStatus = await notificationAuthorizationStatusProvider()
         let codeSignatureStatus = await codeSignatureStatusProvider(bundleURL)
         let rarAvailability = rarAvailabilityProvider()
+        let zstdAvailability = zstdAvailabilityProvider()
 
         items = [
             appLocationItem(),
             finderExtensionItem(),
             notificationPermissionItem(for: notificationStatus),
             rarCommandItem(for: rarAvailability),
+            zstdCommandItem(for: zstdAvailability),
             defaultOutputDirectoryItem(),
             codeSignatureItem(for: codeSignatureStatus)
         ]
@@ -212,6 +220,26 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         return EasyZipDiagnosticItem(
             id: .rarCommand,
             title: "RAR 压缩命令",
+            detail: executableURL.path,
+            status: .normal
+        )
+    }
+
+    private func zstdCommandItem(
+        for availability: ExternalToolAvailability
+    ) -> EasyZipDiagnosticItem {
+        guard let executableURL = availability.executableURL else {
+            return EasyZipDiagnosticItem(
+                id: .zstdCommand,
+                title: "Zstandard 压缩命令",
+                detail: "未找到可执行的 zstd 命令, 仅影响 .tar.zst 压缩.",
+                status: .needsAction
+            )
+        }
+
+        return EasyZipDiagnosticItem(
+            id: .zstdCommand,
+            title: "Zstandard 压缩命令",
             detail: executableURL.path,
             status: .normal
         )
