@@ -55,6 +55,34 @@ struct OptionsPanelView: View {
                     .disabled(model.isRunning)
                 Toggle("保留元数据", isOn: $model.preserveMetadata)
                     .disabled(model.isRunning)
+                Toggle("加密压缩", isOn: $model.encryptCompression)
+                    .disabled(model.isRunning || !model.canEncryptCompression)
+
+                if model.encryptCompression {
+                    LabeledContent("密码") {
+                        SecureField("密码", text: $model.compressionPassword)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 170)
+                            .disabled(model.isRunning)
+                    }
+
+                    LabeledContent("确认密码") {
+                        SecureField("确认密码", text: $model.compressionPasswordConfirmation)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 170)
+                            .disabled(model.isRunning)
+                    }
+
+                    if let message = model.compressionPasswordValidationMessage {
+                        Text(message)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                } else if !model.canEncryptCompression {
+                    Text("当前格式暂不支持加密压缩")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 LabeledContent("冲突处理") {
                     Picker("冲突处理", selection: $model.overwritePolicy) {
@@ -66,6 +94,9 @@ struct OptionsPanelView: View {
                     .frame(width: 150)
                     .disabled(model.isRunning)
                 }
+
+                Toggle("创建外层目录", isOn: $model.shouldCreateContainingDirectory)
+                    .disabled(model.isRunning)
             }
 
             if let taskResult = model.taskResult {

@@ -122,6 +122,13 @@ struct EasyZipMenuBarPanelView: View {
     private var footer: some View {
         HStack {
             Button {
+                actions.openSettings()
+            } label: {
+                Label("设置", systemImage: "gearshape")
+            }
+            .buttonStyle(.borderless)
+
+            Button {
                 actions.quit()
             } label: {
                 Label("退出易压缩", systemImage: "power")

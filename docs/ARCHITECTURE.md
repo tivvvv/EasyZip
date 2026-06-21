@@ -90,6 +90,7 @@ EasyZipCore
 - `RARCommandCompressionEngine` 已实现 `.rar` 创建的外部命令适配; 未安装 `rar` 时返回明确错误.
 - `RARCommandResolver` 集中检测外部 `rar` 命令, UI 和 RAR 压缩引擎共用同一判断.
 - `ArchiveFormat` 集中维护格式主扩展名, 别名扩展名和 UI 显示名.
+- `ArchiveFormat.supportsEncryptedCompression` 集中声明当前可加密写入的格式.
 - `DefaultArchiveFormatDetector` 优先读取文件头 magic number, 无法识别时回退扩展名.
 - `ArchiveService.makeDefault()` 默认注册 `LibArchiveEngine` 和 `RARCommandCompressionEngine`.
 - App, Finder Sync extension 和 Finder handoff 共用 `FileURLListNormalizer` 做文件 URL 标准化和去重.
@@ -108,15 +109,21 @@ EasyZipCore
 - 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; `ask` 需要 resolver 给出明确决策.
 - 图形界面在选择 RAR 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
 - 归档预览支持搜索过滤, 多维排序, 层级缩进, 汇总统计, 风险条目标记和所选条目解压.
+- 压缩密码通过 `CompressionOptions.password` 传入, 当前仅 ZIP 使用 libarchive 写入 AES-256 加密.
+- RAR 加密压缩暂不支持, 避免通过外部命令参数暴露密码.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
 - AppDelegate 管理菜单栏图标和轻量状态面板, 按需创建任务工作台窗口.
 - App 侧按 `App`, `MenuBar`, `Workspace`, `ViewModels`, `Tasks`, `Persistence` 和 `Support` 拆分.
 - 菜单栏状态面板和任务工作台共用同一个 `EasyZipAppModel`, 因此进度, 结果和最近记录保持同步.
 - `ArchiveTaskRunner` 负责 UI 层任务编排, `EasyZipAppModel` 只保留状态流转和用户操作入口.
 - `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
+- `EasyZipAppSettings` 使用 `UserDefaults` 保存默认输出目录, 默认压缩格式和默认冲突策略.
+- `EasyZipAppSettings` 使用 `UserDefaults` 保存通知开关和外层目录开关.
+- `EasyZipAppSettings` 通过 `SMAppService` 控制主应用开机启动.
 - 菜单栏状态面板支持清空最近任务, 固定或移除输出目录, 失败任务可回到工作台查看详情.
+- 菜单栏状态面板和应用菜单可打开设置页.
 - AppDelegate 统一处理应用退出, 运行中任务会先确认并取消后再退出.
-- `TaskCompletionNotifier` 在成功完成任务后发送 macOS 系统通知.
+- `TaskCompletionNotifier` 在设置允许时发送 macOS 系统通知.
 - Finder Sync extension 打包在 `Contents/PlugIns`, 通过临时 handoff 文件把 Finder 选择传回主 app.
 - `easyzip://` URL scheme 只传递操作模式和 handoff id, 旧 `item` query 入口保留兼容.
 - Finder handoff 使用 0700 目录权限和 0600 文件权限, 并限制单次文件数量和 payload 大小.
@@ -126,6 +133,7 @@ EasyZipCore
 - 任务运行中再次唤起会生成 `PendingExternalSelection`, 菜单栏面板和工作台同步展示并允许稍后应用.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
 - 加密归档解压支持通过 `ExtractionOptions.password` 传入密码, UI 侧会在缺少密码或密码错误时提示输入.
+- ZIP 加密压缩支持通过 UI 输入密码和确认密码, Core 会拒绝非 ZIP 格式的加密压缩请求.
 - libarchive 读取错误由 `LibArchiveReadErrorMapper` 转换为领域错误, 加密和密码错误路径可独立测试.
 - Core 测试已引入真实归档 fixture, 覆盖 `.zip`, `.7z`, `.tar.gz`, 加密 zip, 损坏 zip 和路径穿越 zip.
 - GitHub Actions 已接入 push 和 pull request 校验, 会执行测试, 构建, 打包, 签名校验和规范扫描.

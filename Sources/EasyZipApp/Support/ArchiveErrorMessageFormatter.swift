@@ -20,6 +20,8 @@ enum ArchiveErrorMessageFormatter {
             return "加密归档需要密码: \(url.path)"
         case .incorrectArchivePassword(let url):
             return "归档密码不正确: \(url.path)"
+        case .unsupportedEncryptedCompression(let format):
+            return "该格式暂不支持加密压缩: .\(format.fileExtension)"
         case .externalToolUnavailable(let toolName):
             return "未找到外部工具: \(toolName), RAR 压缩需要安装 RAR 命令行工具"
         case .conflictRequiresDecision(let url):

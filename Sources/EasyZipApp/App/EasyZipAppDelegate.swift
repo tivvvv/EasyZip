@@ -10,7 +10,9 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var statusItem: NSStatusItem?
     private var statusPopover: NSPopover?
     private var workspaceWindow: NSWindow?
-    private let workspaceModel = EasyZipAppModel()
+    private var settingsWindow: NSWindow?
+    private let appSettings = EasyZipAppSettings.shared
+    private let workspaceModel = EasyZipAppModel(settings: .shared)
     private var cancellables: Set<AnyCancellable> = []
     private var terminationObserver: AnyCancellable?
     private var isHandlingTerminationRequest = false
@@ -20,10 +22,16 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         NSApplication.shared.setActivationPolicy(.accessory)
         NSApplication.shared.servicesProvider = self
         NSUpdateDynamicServices()
-        TaskCompletionNotifier.requestAuthorization()
+        appSettings.refreshLaunchAtLoginStatus()
+        if appSettings.taskCompletionNotificationEnabled {
+            TaskCompletionNotifier.requestAuthorization()
+        }
         handoffStore.removeExpiredFiles()
         installStatusItem()
-        MainMenuBuilder.install()
+        MainMenuBuilder.install(
+            settingsTarget: self,
+            settingsAction: #selector(openSettingsFromMenu)
+        )
         observeStatusModel()
         updateStatusItem()
     }
@@ -69,6 +77,11 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     @objc private func openWorkspaceFromMenu() {
         closeStatusPanel()
         showWorkspace()
+    }
+
+    @objc private func openSettingsFromMenu() {
+        closeStatusPanel()
+        showSettings()
     }
 
     @objc private func chooseItemsForCompression() {
@@ -195,6 +208,12 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 Task { @MainActor in
                     self?.closeStatusPanel()
                     self?.showWorkspace()
+                }
+            },
+            openSettings: { [weak self] in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    self?.showSettings()
                 }
             },
             chooseCompression: { [weak self] in
@@ -439,6 +458,33 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         workspaceWindow?.makeKeyAndOrderFront(nil)
         workspaceWindow?.orderFrontRegardless()
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func showSettings() {
+        if settingsWindow == nil {
+            let hostingController = NSHostingController(
+                rootView: EasyZipSettingsView(settings: appSettings)
+            )
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "设置"
+            window.contentViewController = hostingController
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
+        }
+
+        if settingsWindow?.isMiniaturized == true {
+            settingsWindow?.deminiaturize(nil)
+        }
+
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.orderFrontRegardless()
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 

@@ -6,7 +6,7 @@ struct EasyZipApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            EasyZipSettingsView(settings: .shared)
         }
     }
 }

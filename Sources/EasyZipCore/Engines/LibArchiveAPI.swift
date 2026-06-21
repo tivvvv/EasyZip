@@ -83,6 +83,12 @@ func archive_write_set_format_zip(_ archive: OpaquePointer?) -> Int32
 @_silgen_name("archive_write_set_format_7zip")
 func archive_write_set_format_7zip(_ archive: OpaquePointer?) -> Int32
 
+@_silgen_name("archive_write_set_passphrase")
+func archive_write_set_passphrase(
+    _ archive: OpaquePointer?,
+    _ passphrase: UnsafePointer<CChar>?
+) -> Int32
+
 @_silgen_name("archive_write_set_format_option")
 func archive_write_set_format_option(
     _ archive: OpaquePointer?,

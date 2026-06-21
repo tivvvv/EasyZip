@@ -10,6 +10,7 @@ enum ArchiveTaskRunner {
         includeHiddenFiles: Bool,
         preserveParentDirectory: Bool,
         preserveMetadata: Bool,
+        password: String?,
         progressHandler: ArchiveProgressHandler?
     ) async throws -> TaskResult {
         let destinationURL = compressionDestinationURL(
@@ -25,7 +26,8 @@ enum ArchiveTaskRunner {
             options: CompressionOptions(
                 includeHiddenFiles: includeHiddenFiles,
                 preserveMetadata: preserveMetadata,
-                preserveParentDirectory: preserveParentDirectory
+                preserveParentDirectory: preserveParentDirectory,
+                password: password
             )
         )
 
@@ -43,6 +45,7 @@ enum ArchiveTaskRunner {
         archiveURLs: [URL],
         outputDirectory: URL?,
         overwritePolicy: OverwritePolicy,
+        shouldCreateContainingDirectory: Bool,
         selectedEntryPaths: Set<String> = [],
         password: String? = nil,
         progressHandler: ArchiveProgressHandler?
@@ -55,7 +58,8 @@ enum ArchiveTaskRunner {
 
             let destinationURL = extractionDestinationURL(
                 archiveURL: archiveURL,
-                outputDirectory: outputDirectory
+                outputDirectory: outputDirectory,
+                shouldCreateContainingDirectory: shouldCreateContainingDirectory
             )
             destinationURLs.append(destinationURL)
 
@@ -67,6 +71,7 @@ enum ArchiveTaskRunner {
                 ),
                 options: ExtractionOptions(
                     overwritePolicy: overwritePolicy,
+                    shouldCreateContainingDirectory: shouldCreateContainingDirectory,
                     selectedEntryPaths: selectedEntryPaths,
                     password: password
                 )
@@ -118,9 +123,15 @@ enum ArchiveTaskRunner {
 
     private static func extractionDestinationURL(
         archiveURL: URL,
-        outputDirectory: URL?
+        outputDirectory: URL?,
+        shouldCreateContainingDirectory: Bool
     ) -> URL {
         let baseDirectory = baseDestinationURL(archiveURL: archiveURL, outputDirectory: outputDirectory)
+
+        guard shouldCreateContainingDirectory else {
+            return baseDirectory
+        }
+
         let directoryName = extractionContainingDirectoryName(for: archiveURL)
 
         return baseDirectory.appendingPathComponent(directoryName, isDirectory: true)

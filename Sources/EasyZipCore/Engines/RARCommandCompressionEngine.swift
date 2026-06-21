@@ -45,6 +45,9 @@ public struct RARCommandCompressionEngine: ArchiveEngine {
         guard !request.sourceURLs.isEmpty else {
             throw ArchiveError.invalidSource(request.destinationURL)
         }
+        guard request.options.password == nil else {
+            throw ArchiveError.unsupportedEncryptedCompression(format: request.format)
+        }
 
         let destinationPlanner = CompressionDestinationPlanner()
         try destinationPlanner.validate(

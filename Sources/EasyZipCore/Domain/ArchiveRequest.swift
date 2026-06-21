@@ -109,17 +109,20 @@ public struct CompressionOptions: Equatable, Sendable {
     public let includeHiddenFiles: Bool
     public let preserveMetadata: Bool
     public let preserveParentDirectory: Bool
+    public let password: String?
 
     public init(
         compressionLevel: CompressionLevel = .balanced,
         includeHiddenFiles: Bool = false,
         preserveMetadata: Bool = true,
-        preserveParentDirectory: Bool = true
+        preserveParentDirectory: Bool = true,
+        password: String? = nil
     ) {
         self.compressionLevel = compressionLevel
         self.includeHiddenFiles = includeHiddenFiles
         self.preserveMetadata = preserveMetadata
         self.preserveParentDirectory = preserveParentDirectory
+        self.password = password?.isEmpty == true ? nil : password
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import EasyZipCore
 import EasyZipShared
 import Foundation
@@ -9,6 +10,9 @@ final class EasyZipAppModel: ObservableObject {
     @Published var mode: WorkspaceMode = .compress {
         didSet {
             clearExtractionPassword()
+            if mode != .compress {
+                disableCompressionEncryption()
+            }
             resetProgressIfIdle()
             refreshExternalToolAvailability()
             refreshArchivePreview()
@@ -23,6 +27,7 @@ final class EasyZipAppModel: ObservableObject {
     }
     @Published var selectedFormat: ArchiveFormat = .zip {
         didSet {
+            normalizeCompressionEncryptionForSelectedFormat()
             resetProgressIfIdle()
             refreshExternalToolAvailability()
         }
@@ -32,6 +37,17 @@ final class EasyZipAppModel: ObservableObject {
     @Published var includeHiddenFiles = false
     @Published var preserveParentDirectory = true
     @Published var preserveMetadata = true
+    @Published var shouldCreateContainingDirectory = true
+    @Published var encryptCompression = false {
+        didSet {
+            if !encryptCompression {
+                clearCompressionPassword()
+            }
+            resetProgressIfIdle()
+        }
+    }
+    @Published var compressionPassword = ""
+    @Published var compressionPasswordConfirmation = ""
     @Published var archiveEntries: [ArchiveEntryRow] = []
     @Published var selectedArchiveEntryPaths: Set<String> = []
     @Published var previewState = "未选择归档"
@@ -49,8 +65,19 @@ final class EasyZipAppModel: ObservableObject {
 
     private var operationTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
+    private let settings: EasyZipAppSettings
     private let rarCommandResolver = RARCommandResolver()
+    private var settingsCancellables: Set<AnyCancellable> = []
     private var extractionPassword: String?
+
+    init(settings: EasyZipAppSettings = .shared) {
+        self.settings = settings
+        outputDirectory = settings.defaultOutputDirectory
+        selectedFormat = settings.defaultCompressionFormat
+        overwritePolicy = settings.defaultOverwritePolicy
+        shouldCreateContainingDirectory = settings.shouldCreateContainingDirectory
+        observeSettings()
+    }
 
     var primaryActionTitle: String {
         switch mode {
@@ -85,6 +112,30 @@ final class EasyZipAppModel: ObservableObject {
             iconName: "exclamationmark.triangle",
             isBlocking: true
         )
+    }
+
+    var canEncryptCompression: Bool {
+        selectedFormat.supportsEncryptedCompression
+    }
+
+    var compressionPasswordValidationMessage: String? {
+        guard encryptCompression else {
+            return nil
+        }
+
+        guard canEncryptCompression else {
+            return "当前格式暂不支持加密压缩"
+        }
+
+        guard !compressionPassword.isEmpty else {
+            return "请输入压缩密码"
+        }
+
+        guard compressionPassword == compressionPasswordConfirmation else {
+            return "两次密码不一致"
+        }
+
+        return nil
     }
 
     var outputLabel: String {
@@ -327,6 +378,10 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
+        guard compressionPasswordIsValid() else {
+            return
+        }
+
         isRunning = true
         progressFraction = 0
         progressText = mode == .compress ? "准备压缩" : "准备解压"
@@ -342,6 +397,7 @@ final class EasyZipAppModel: ObservableObject {
         let outputDirectory = outputDirectory
         let selectedFormat = selectedFormat
         let overwritePolicy = overwritePolicy
+        let shouldCreateContainingDirectory = shouldCreateContainingDirectory
         let entryPathsToExtract = mode == .extract && selectedItems.count == 1
             ? selectedArchiveEntryPaths
             : []
@@ -350,6 +406,7 @@ final class EasyZipAppModel: ObservableObject {
         let includeHiddenFiles = includeHiddenFiles
         let preserveParentDirectory = preserveParentDirectory
         let preserveMetadata = preserveMetadata
+        let compressionPassword = mode == .compress && encryptCompression ? compressionPassword : nil
 
         operationTask = Task.detached { [weak self] in
             do {
@@ -365,6 +422,7 @@ final class EasyZipAppModel: ObservableObject {
                         includeHiddenFiles: includeHiddenFiles,
                         preserveParentDirectory: preserveParentDirectory,
                         preserveMetadata: preserveMetadata,
+                        password: compressionPassword,
                         progressHandler: { progress in
                             Task { @MainActor in
                                 self?.apply(progress)
@@ -376,6 +434,7 @@ final class EasyZipAppModel: ObservableObject {
                         archiveURLs: selectedItems,
                         outputDirectory: outputDirectory,
                         overwritePolicy: overwritePolicy,
+                        shouldCreateContainingDirectory: shouldCreateContainingDirectory,
                         selectedEntryPaths: entryPathsToExtract,
                         password: extractionPassword,
                         progressHandler: { progress in
@@ -506,6 +565,63 @@ final class EasyZipAppModel: ObservableObject {
         !requiresRARCommand || rarCommandAvailability.isAvailable
     }
 
+    private func observeSettings() {
+        settings.$defaultOutputDirectory
+            .dropFirst()
+            .sink { [weak self] outputDirectory in
+                Task { @MainActor in
+                    self?.outputDirectory = outputDirectory
+                }
+            }
+            .store(in: &settingsCancellables)
+
+        settings.$defaultCompressionFormat
+            .dropFirst()
+            .sink { [weak self] format in
+                Task { @MainActor in
+                    self?.selectedFormat = format
+                }
+            }
+            .store(in: &settingsCancellables)
+
+        settings.$defaultOverwritePolicy
+            .dropFirst()
+            .sink { [weak self] overwritePolicy in
+                Task { @MainActor in
+                    self?.overwritePolicy = overwritePolicy
+                }
+            }
+            .store(in: &settingsCancellables)
+
+        settings.$shouldCreateContainingDirectory
+            .dropFirst()
+            .sink { [weak self] shouldCreateContainingDirectory in
+                Task { @MainActor in
+                    self?.shouldCreateContainingDirectory = shouldCreateContainingDirectory
+                }
+            }
+            .store(in: &settingsCancellables)
+    }
+
+    private func compressionPasswordIsValid() -> Bool {
+        guard mode == .compress,
+              let message = compressionPasswordValidationMessage else {
+            return true
+        }
+
+        let title = canEncryptCompression ? "需要密码" : "加密压缩不可用"
+        taskResult = TaskResult(
+            title: title,
+            detail: message,
+            outputURL: nil,
+            iconName: "lock"
+        )
+        progressFraction = 0
+        progressText = "等待密码"
+        alert = AppAlert(title: title, message: message)
+        return false
+    }
+
     private func reportMissingRequiredExternalTool() {
         let message = ArchiveErrorMessageFormatter.message(
             for: ArchiveError.externalToolUnavailable(RARCommandResolver.toolName)
@@ -548,6 +664,28 @@ final class EasyZipAppModel: ObservableObject {
     private func clearExtractionPassword() {
         extractionPassword = nil
         passwordPrompt = nil
+    }
+
+    private func clearCompressionPassword() {
+        compressionPassword = ""
+        compressionPasswordConfirmation = ""
+    }
+
+    private func disableCompressionEncryption() {
+        guard encryptCompression else {
+            clearCompressionPassword()
+            return
+        }
+
+        encryptCompression = false
+    }
+
+    private func normalizeCompressionEncryptionForSelectedFormat() {
+        guard !selectedFormat.supportsEncryptedCompression else {
+            return
+        }
+
+        disableCompressionEncryption()
     }
 
     private func refreshArchivePreview() {
@@ -601,19 +739,23 @@ final class EasyZipAppModel: ObservableObject {
 
     private func finishOperation(_ result: TaskResult) {
         isRunning = false
+        clearExtractionPassword()
+        disableCompressionEncryption()
         progressFraction = 1
         progressText = result.title
-        clearExtractionPassword()
         taskResult = result
         recordRecentTask(result)
-        TaskCompletionNotifier.send(result)
+        if settings.taskCompletionNotificationEnabled {
+            TaskCompletionNotifier.send(result)
+        }
         refreshArchivePreview()
     }
 
     private func cancelOperationResult() {
         isRunning = false
-        progressText = "已取消"
         clearExtractionPassword()
+        disableCompressionEncryption()
+        progressText = "已取消"
         let result = TaskResult(
             title: "已取消",
             detail: "任务没有完成",
@@ -632,8 +774,9 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
-        progressText = "失败"
         clearExtractionPassword()
+        disableCompressionEncryption()
+        progressText = "失败"
         let message = ArchiveErrorMessageFormatter.message(for: error)
         let result = TaskResult(
             title: "操作失败",

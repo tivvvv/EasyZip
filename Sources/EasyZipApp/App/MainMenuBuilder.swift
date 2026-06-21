@@ -2,11 +2,17 @@ import AppKit
 
 @MainActor
 enum MainMenuBuilder {
-    static func install() {
-        NSApplication.shared.mainMenu = makeMainMenu()
+    static func install(settingsTarget: AnyObject?, settingsAction: Selector) {
+        NSApplication.shared.mainMenu = makeMainMenu(
+            settingsTarget: settingsTarget,
+            settingsAction: settingsAction
+        )
     }
 
-    private static func makeMainMenu() -> NSMenu {
+    private static func makeMainMenu(
+        settingsTarget: AnyObject?,
+        settingsAction: Selector
+    ) -> NSMenu {
         let mainMenu = NSMenu()
 
         let appMenu = NSMenu(title: "易压缩")
@@ -17,6 +23,14 @@ enum MainMenuBuilder {
                 keyEquivalent: ""
             )
         )
+        appMenu.addItem(.separator())
+        let settingsItem = NSMenuItem(
+            title: "设置...",
+            action: settingsAction,
+            keyEquivalent: ","
+        )
+        settingsItem.target = settingsTarget
+        appMenu.addItem(settingsItem)
         appMenu.addItem(.separator())
         appMenu.addItem(
             NSMenuItem(

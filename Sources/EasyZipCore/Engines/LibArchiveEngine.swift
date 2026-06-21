@@ -206,6 +206,7 @@ public struct LibArchiveEngine: ArchiveEngine {
             destinationURL: request.destinationURL,
             sourceURLs: request.sourceURLs
         )
+        try validateCompressionOptions(for: request)
 
         let sourceItems = try makeSourceItems(for: request)
         let temporaryDestinationURL = try destinationPlanner.makeTemporaryDestinationURL(
@@ -538,6 +539,7 @@ private extension LibArchiveEngine {
                 operation: "enable zip writer"
             )
             try setFormatCompressionLevel(archive, options: request.options)
+            try configureZIPEncryption(archive, options: request.options)
         case .sevenZip:
             try require(
                 archive_write_set_format_7zip(archive),
@@ -558,6 +560,47 @@ private extension LibArchiveEngine {
         case .tarXz:
             try configureTarWriter(archive, filter: archive_write_add_filter_xz, filterName: "xz")
             try setFilterCompressionLevel(archive, options: request.options)
+        }
+    }
+
+    func validateCompressionOptions(for request: CompressionRequest) throws {
+        guard request.options.password != nil,
+              !request.format.supportsEncryptedCompression else {
+            return
+        }
+
+        throw ArchiveError.unsupportedEncryptedCompression(format: request.format)
+    }
+
+    func configureZIPEncryption(
+        _ archive: OpaquePointer,
+        options: CompressionOptions
+    ) throws {
+        guard let password = options.password else {
+            return
+        }
+
+        try password.withCString { passphrase in
+            try require(
+                archive_write_set_passphrase(archive, passphrase),
+                archive: archive,
+                operation: "set zip password"
+            )
+        }
+        try setZIPEncryptionType(archive)
+    }
+
+    func setZIPEncryptionType(_ archive: OpaquePointer) throws {
+        try "zip".withCString { module in
+            try "encryption".withCString { option in
+                try "aes256".withCString { value in
+                    try require(
+                        archive_write_set_format_option(archive, module, option, value),
+                        archive: archive,
+                        operation: "set zip encryption"
+                    )
+                }
+            }
         }
     }
 

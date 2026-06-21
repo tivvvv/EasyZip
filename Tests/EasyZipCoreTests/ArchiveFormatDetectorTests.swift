@@ -73,6 +73,13 @@ final class ArchiveFormatDetectorTests: XCTestCase {
         XCTAssertEqual(baseName, "example")
     }
 
+    func testEncryptedCompressionSupportIsExplicit() {
+        XCTAssertTrue(ArchiveFormat.zip.supportsEncryptedCompression)
+
+        let unsupportedFormats = ArchiveFormat.allCases.filter { $0 != .zip }
+        XCTAssertTrue(unsupportedFormats.allSatisfy { !$0.supportsEncryptedCompression })
+    }
+
     func testThrowsForUnsupportedExtension() throws {
         let detector = DefaultArchiveFormatDetector()
 

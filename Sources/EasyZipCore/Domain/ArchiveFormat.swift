@@ -54,6 +54,15 @@ public enum ArchiveFormat: CaseIterable, Hashable, Sendable {
         ".\(fileExtension)"
     }
 
+    public var supportsEncryptedCompression: Bool {
+        switch self {
+        case .zip:
+            true
+        case .rar, .sevenZip, .tar, .tarGzip, .tarBzip2, .tarXz:
+            false
+        }
+    }
+
     public static var supportedFileExtensions: [String] {
         allCases.flatMap(\.fileExtensions)
     }
