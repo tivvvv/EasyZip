@@ -4,6 +4,15 @@ import SwiftUI
 
 struct EasyZipSettingsView: View {
     @ObservedObject var settings: EasyZipAppSettings
+    let openDiagnostics: (() -> Void)?
+
+    init(
+        settings: EasyZipAppSettings,
+        openDiagnostics: (() -> Void)? = nil
+    ) {
+        self.settings = settings
+        self.openDiagnostics = openDiagnostics
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -79,6 +88,14 @@ struct EasyZipSettingsView: View {
             .formStyle(.grouped)
 
             HStack {
+                if let openDiagnostics {
+                    Button {
+                        openDiagnostics()
+                    } label: {
+                        Label("打开诊断", systemImage: "stethoscope")
+                    }
+                }
+
                 Spacer()
 
                 Button {

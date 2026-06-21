@@ -12,6 +12,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var workspaceWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
+    private var diagnosticsWindow: NSWindow?
     private let appSettings = EasyZipAppSettings.shared
     private let onboardingState = EasyZipOnboardingState.shared
     private let workspaceModel = EasyZipAppModel(settings: .shared)
@@ -70,6 +71,8 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         } else if window === onboardingWindow {
             onboardingWindow = nil
             onboardingState.completeFirstLaunchGuide()
+        } else if window === diagnosticsWindow {
+            diagnosticsWindow = nil
         }
     }
 
@@ -229,6 +232,12 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 Task { @MainActor in
                     self?.closeStatusPanel()
                     self?.showOnboarding()
+                }
+            },
+            openDiagnostics: { [weak self] in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    self?.showDiagnostics()
                 }
             },
             chooseCompression: { [weak self] in
@@ -545,24 +554,73 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func openFinderExtensionSettings() {
-        let settingsURLs = [
-            URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences?Finder"),
-            URL(string: "x-apple.systempreferences:com.apple.preferences.extensions?Finder")
-        ].compactMap { $0 }
+        SystemSettingsOpener.openFinderExtensionSettings()
+    }
 
-        for url in settingsURLs {
-            if NSWorkspace.shared.open(url) {
-                return
-            }
+    private func showDiagnostics() {
+        if diagnosticsWindow == nil {
+            let actions = EasyZipDiagnosticsActions(
+                perform: { [weak self] action in
+                    Task { @MainActor in
+                        self?.performDiagnosticAction(action)
+                    }
+                }
+            )
+            let hostingController = NSHostingController(
+                rootView: EasyZipDiagnosticsView(
+                    model: EasyZipDiagnosticsModel(settings: appSettings),
+                    actions: actions
+                )
+            )
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 580),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "环境诊断"
+            window.contentViewController = hostingController
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.center()
+            diagnosticsWindow = window
         }
 
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Library/PreferencePanes/Extensions.prefPane"))
+        if diagnosticsWindow?.isMiniaturized == true {
+            diagnosticsWindow?.deminiaturize(nil)
+        }
+
+        diagnosticsWindow?.makeKeyAndOrderFront(nil)
+        diagnosticsWindow?.orderFrontRegardless()
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func performDiagnosticAction(_ action: EasyZipDiagnosticAction) {
+        switch action {
+        case .openApplications:
+            SystemSettingsOpener.openApplicationsFolder()
+        case .openFinderExtensionSettings:
+            SystemSettingsOpener.openFinderExtensionSettings()
+        case .openNotificationSettings:
+            SystemSettingsOpener.openNotificationSettings()
+        case .requestNotificationAuthorization:
+            TaskCompletionNotifier.requestAuthorization()
+        case .openSettings:
+            showSettings()
+        }
     }
 
     private func showSettings() {
         if settingsWindow == nil {
             let hostingController = NSHostingController(
-                rootView: EasyZipSettingsView(settings: appSettings)
+                rootView: EasyZipSettingsView(
+                    settings: appSettings,
+                    openDiagnostics: { [weak self] in
+                        Task { @MainActor in
+                            self?.showDiagnostics()
+                        }
+                    }
+                )
             )
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),

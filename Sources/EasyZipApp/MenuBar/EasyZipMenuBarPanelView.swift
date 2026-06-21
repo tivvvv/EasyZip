@@ -120,29 +120,34 @@ struct EasyZipMenuBarPanelView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Button {
-                actions.openSettings()
-            } label: {
-                Label("设置", systemImage: "gearshape")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                footerButton(
+                    title: "设置",
+                    systemName: "gearshape",
+                    action: actions.openSettings
+                )
+                footerButton(
+                    title: "诊断",
+                    systemName: "stethoscope",
+                    action: actions.openDiagnostics
+                )
+                footerButton(
+                    title: "引导",
+                    systemName: "questionmark.circle",
+                    action: actions.openOnboarding
+                )
+                Spacer()
             }
-            .buttonStyle(.borderless)
 
-            Button {
-                actions.openOnboarding()
-            } label: {
-                Label("引导", systemImage: "questionmark.circle")
+            HStack {
+                footerButton(
+                    title: "退出易压缩",
+                    systemName: "power",
+                    action: actions.quit
+                )
+                Spacer()
             }
-            .buttonStyle(.borderless)
-
-            Button {
-                actions.quit()
-            } label: {
-                Label("退出易压缩", systemImage: "power")
-            }
-            .buttonStyle(.borderless)
-
-            Spacer()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -368,5 +373,16 @@ struct EasyZipMenuBarPanelView: View {
         }
         .buttonStyle(.borderless)
         .help(help)
+    }
+
+    private func footerButton(
+        title: String,
+        systemName: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemName)
+        }
+        .buttonStyle(.borderless)
     }
 }
