@@ -72,7 +72,7 @@ final class EasyZipAppModel: ObservableObject {
 
     init(settings: EasyZipAppSettings = .shared) {
         self.settings = settings
-        outputDirectory = settings.defaultOutputDirectory
+        outputDirectory = settings.effectiveDefaultOutputDirectory
         selectedFormat = settings.defaultCompressionFormat
         overwritePolicy = settings.defaultOverwritePolicy
         shouldCreateContainingDirectory = settings.shouldCreateContainingDirectory
@@ -568,9 +568,14 @@ final class EasyZipAppModel: ObservableObject {
     private func observeSettings() {
         settings.$defaultOutputDirectory
             .dropFirst()
-            .sink { [weak self] outputDirectory in
+            .sink { [weak self] _ in
                 Task { @MainActor in
-                    self?.outputDirectory = outputDirectory
+                    guard let self else {
+                        return
+                    }
+
+                    self.outputDirectory = self.settings.effectiveDefaultOutputDirectory
+                    self.showSettingsAppliedResult()
                 }
             }
             .store(in: &settingsCancellables)
@@ -579,7 +584,12 @@ final class EasyZipAppModel: ObservableObject {
             .dropFirst()
             .sink { [weak self] format in
                 Task { @MainActor in
-                    self?.selectedFormat = format
+                    guard let self else {
+                        return
+                    }
+
+                    self.selectedFormat = format
+                    self.showSettingsAppliedResult()
                 }
             }
             .store(in: &settingsCancellables)
@@ -588,7 +598,12 @@ final class EasyZipAppModel: ObservableObject {
             .dropFirst()
             .sink { [weak self] overwritePolicy in
                 Task { @MainActor in
-                    self?.overwritePolicy = overwritePolicy
+                    guard let self else {
+                        return
+                    }
+
+                    self.overwritePolicy = overwritePolicy
+                    self.showSettingsAppliedResult()
                 }
             }
             .store(in: &settingsCancellables)
@@ -597,10 +612,30 @@ final class EasyZipAppModel: ObservableObject {
             .dropFirst()
             .sink { [weak self] shouldCreateContainingDirectory in
                 Task { @MainActor in
-                    self?.shouldCreateContainingDirectory = shouldCreateContainingDirectory
+                    guard let self else {
+                        return
+                    }
+
+                    self.shouldCreateContainingDirectory = shouldCreateContainingDirectory
+                    self.showSettingsAppliedResult()
                 }
             }
             .store(in: &settingsCancellables)
+    }
+
+    private func showSettingsAppliedResult() {
+        guard !isRunning else {
+            return
+        }
+
+        taskResult = TaskResult(
+            title: "设置已应用",
+            detail: "默认任务设置已同步到工作台",
+            outputURL: nil,
+            iconName: "gearshape"
+        )
+        progressFraction = 0
+        progressText = "设置已应用"
     }
 
     private func compressionPasswordIsValid() -> Bool {

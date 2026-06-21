@@ -119,7 +119,9 @@ EasyZipCore
 - `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存默认输出目录, 默认压缩格式和默认冲突策略.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存通知开关和外层目录开关.
+- `EasyZipAppSettings` 会检测默认输出目录可用性, 失效时工作台回退到源文件位置.
 - `EasyZipAppSettings` 通过 `SMAppService` 控制主应用开机启动.
+- 工作台监听设置变更并展示轻量结果提示, 避免设置页和任务页状态脱节.
 - 菜单栏状态面板支持清空最近任务, 固定或移除输出目录, 失败任务可回到工作台查看详情.
 - 菜单栏状态面板和应用菜单可打开设置页.
 - AppDelegate 统一处理应用退出, 运行中任务会先确认并取消后再退出.

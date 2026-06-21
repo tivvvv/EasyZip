@@ -74,6 +74,62 @@ final class EasyZipAppSettingsTests: XCTestCase {
         XCTAssertNil(reloadedSettings.defaultOutputDirectory)
     }
 
+    func testUsesStoredDefaultOutputDirectoryWhenAvailable() throws {
+        let defaults = makeUserDefaults()
+        let outputURL = try makeTemporaryDirectory()
+        let settings = EasyZipAppSettings(
+            userDefaults: defaults,
+            launchAtLoginController: StubLaunchAtLoginController(isEnabled: false),
+            notificationAuthorizationRequester: {}
+        )
+
+        settings.defaultOutputDirectory = outputURL
+
+        XCTAssertEqual(settings.effectiveDefaultOutputDirectory?.path, outputURL.path)
+        XCTAssertNil(settings.defaultOutputDirectoryWarning)
+    }
+
+    func testFallsBackWhenStoredDefaultOutputDirectoryIsUnavailable() {
+        let defaults = makeUserDefaults()
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyZipTests-\(UUID().uuidString)", isDirectory: true)
+        let settings = EasyZipAppSettings(
+            userDefaults: defaults,
+            launchAtLoginController: StubLaunchAtLoginController(isEnabled: false),
+            notificationAuthorizationRequester: {}
+        )
+
+        settings.defaultOutputDirectory = missingURL
+
+        XCTAssertNil(settings.effectiveDefaultOutputDirectory)
+        XCTAssertEqual(settings.defaultOutputDirectoryWarning, "默认输出目录不可用, 将跟随源文件位置")
+    }
+
+    func testRestoresDefaults() {
+        let defaults = makeUserDefaults()
+        let launchAtLoginController = StubLaunchAtLoginController(isEnabled: true)
+        let settings = EasyZipAppSettings(
+            userDefaults: defaults,
+            launchAtLoginController: launchAtLoginController,
+            notificationAuthorizationRequester: {}
+        )
+
+        settings.defaultOutputDirectory = URL(fileURLWithPath: "/tmp/easyzip-output", isDirectory: true)
+        settings.defaultCompressionFormat = .sevenZip
+        settings.defaultOverwritePolicy = .overwrite
+        settings.taskCompletionNotificationEnabled = false
+        settings.shouldCreateContainingDirectory = false
+
+        settings.restoreDefaults()
+
+        XCTAssertNil(settings.defaultOutputDirectory)
+        XCTAssertEqual(settings.defaultCompressionFormat, .zip)
+        XCTAssertEqual(settings.defaultOverwritePolicy, .rename)
+        XCTAssertTrue(settings.taskCompletionNotificationEnabled)
+        XCTAssertTrue(settings.shouldCreateContainingDirectory)
+        XCTAssertFalse(settings.launchAtLoginEnabled)
+    }
+
     func testUpdatesLaunchAtLoginStatusThroughController() {
         let defaults = makeUserDefaults()
         let launchAtLoginController = StubLaunchAtLoginController(isEnabled: false)
@@ -105,7 +161,7 @@ final class EasyZipAppSettingsTests: XCTestCase {
         settings.setLaunchAtLoginEnabled(true)
 
         XCTAssertFalse(settings.launchAtLoginEnabled)
-        XCTAssertEqual(settings.launchAtLoginErrorMessage, "开机启动设置失败")
+        XCTAssertTrue(settings.launchAtLoginErrorMessage?.hasPrefix("开机启动设置失败:") == true)
     }
 
     private func makeUserDefaults() -> UserDefaults {
@@ -113,6 +169,13 @@ final class EasyZipAppSettingsTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyZipTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }
 

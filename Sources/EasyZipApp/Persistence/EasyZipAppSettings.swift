@@ -63,15 +63,18 @@ final class EasyZipAppSettings: ObservableObject {
     @Published private(set) var launchAtLoginErrorMessage: String?
 
     private let userDefaults: UserDefaults
+    private let fileManager: FileManager
     private let launchAtLoginController: any LaunchAtLoginControlling
     private let notificationAuthorizationRequester: () -> Void
 
     init(
         userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default,
         launchAtLoginController: any LaunchAtLoginControlling = SystemLaunchAtLoginController(),
         notificationAuthorizationRequester: @escaping () -> Void = TaskCompletionNotifier.requestAuthorization
     ) {
         self.userDefaults = userDefaults
+        self.fileManager = fileManager
         self.launchAtLoginController = launchAtLoginController
         self.notificationAuthorizationRequester = notificationAuthorizationRequester
         defaultOutputDirectory = Self.loadDefaultOutputDirectory(from: userDefaults)
@@ -90,19 +93,65 @@ final class EasyZipAppSettings: ObservableObject {
         launchAtLoginEnabled = launchAtLoginController.isEnabled
     }
 
+    var effectiveDefaultOutputDirectory: URL? {
+        guard let defaultOutputDirectory,
+              defaultOutputDirectoryIsAvailable else {
+            return nil
+        }
+
+        return defaultOutputDirectory
+    }
+
+    var defaultOutputDirectoryWarning: String? {
+        guard defaultOutputDirectory != nil,
+              !defaultOutputDirectoryIsAvailable else {
+            return nil
+        }
+
+        return "默认输出目录不可用, 将跟随源文件位置"
+    }
+
     func refreshLaunchAtLoginStatus() {
         launchAtLoginEnabled = launchAtLoginController.isEnabled
     }
 
     func setLaunchAtLoginEnabled(_ isEnabled: Bool) {
+        guard launchAtLoginController.isEnabled != isEnabled else {
+            launchAtLoginEnabled = isEnabled
+            launchAtLoginErrorMessage = nil
+            return
+        }
+
         do {
             try launchAtLoginController.setEnabled(isEnabled)
             launchAtLoginEnabled = launchAtLoginController.isEnabled
             launchAtLoginErrorMessage = nil
         } catch {
             launchAtLoginEnabled = launchAtLoginController.isEnabled
-            launchAtLoginErrorMessage = isEnabled ? "开机启动设置失败" : "关闭开机启动失败"
+            let title = isEnabled ? "开机启动设置失败" : "关闭开机启动失败"
+            launchAtLoginErrorMessage = "\(title): \(error.localizedDescription)"
         }
+    }
+
+    func restoreDefaults() {
+        defaultOutputDirectory = nil
+        defaultCompressionFormat = .zip
+        defaultOverwritePolicy = .rename
+        shouldCreateContainingDirectory = true
+        taskCompletionNotificationEnabled = true
+        setLaunchAtLoginEnabled(false)
+    }
+
+    private var defaultOutputDirectoryIsAvailable: Bool {
+        guard let defaultOutputDirectory else {
+            return true
+        }
+
+        var isDirectory = ObjCBool(false)
+        return fileManager.fileExists(
+            atPath: defaultOutputDirectory.path,
+            isDirectory: &isDirectory
+        ) && isDirectory.boolValue
     }
 
     private func saveDefaultOutputDirectory() {

@@ -37,6 +37,12 @@ struct EasyZipSettingsView: View {
                         }
                     }
 
+                    if let warning = settings.defaultOutputDirectoryWarning {
+                        Label(warning, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
                     Picker("压缩格式", selection: $settings.defaultCompressionFormat) {
                         ForEach(ArchiveFormat.allCases, id: \.self) { format in
                             Text(format.displayExtension).tag(format)
@@ -71,6 +77,16 @@ struct EasyZipSettingsView: View {
                 }
             }
             .formStyle(.grouped)
+
+            HStack {
+                Spacer()
+
+                Button {
+                    settings.restoreDefaults()
+                } label: {
+                    Label("恢复默认设置", systemImage: "arrow.counterclockwise")
+                }
+            }
         }
         .padding(24)
         .frame(width: 520)
