@@ -39,6 +39,8 @@ EasyZip.app
     Main menu
   MenuBar
     Status panel
+  Onboarding
+    First launch guide
   Workspace
     SwiftUI workbench
   ViewModels
@@ -115,8 +117,11 @@ EasyZipCore
 - RAR 加密压缩暂不支持, 避免通过外部命令参数暴露密码.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
 - AppDelegate 管理菜单栏图标和轻量状态面板, 按需创建任务工作台窗口.
-- App 侧按 `App`, `MenuBar`, `Workspace`, `ViewModels`, `Tasks`, `Persistence` 和 `Support` 拆分.
+- App 侧按 `App`, `MenuBar`, `Onboarding`, `Workspace`, `ViewModels`, `Tasks`, `Persistence` 和 `Support` 拆分.
 - 菜单栏状态面板和任务工作台共用同一个 `EasyZipAppModel`, 因此进度, 结果和最近记录保持同步.
+- `EasyZipOnboardingState` 使用 `UserDefaults` 记录首次启动引导完成状态.
+- 首次启动引导由 AppDelegate 按需创建独立窗口, 完成或关闭后不再自动展示.
+- 菜单栏状态面板可重新打开首次启动引导.
 - `ArchiveTaskRunner` 负责 UI 层任务编排, `EasyZipAppModel` 只保留状态流转和用户操作入口.
 - `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存默认输出目录, 默认压缩格式和默认冲突策略.

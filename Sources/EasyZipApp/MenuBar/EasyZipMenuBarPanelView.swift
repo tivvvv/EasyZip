@@ -129,6 +129,13 @@ struct EasyZipMenuBarPanelView: View {
             .buttonStyle(.borderless)
 
             Button {
+                actions.openOnboarding()
+            } label: {
+                Label("引导", systemImage: "questionmark.circle")
+            }
+            .buttonStyle(.borderless)
+
+            Button {
                 actions.quit()
             } label: {
                 Label("退出易压缩", systemImage: "power")

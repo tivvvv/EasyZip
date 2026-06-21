@@ -11,7 +11,9 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var statusPopover: NSPopover?
     private var workspaceWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var onboardingWindow: NSWindow?
     private let appSettings = EasyZipAppSettings.shared
+    private let onboardingState = EasyZipOnboardingState.shared
     private let workspaceModel = EasyZipAppModel(settings: .shared)
     private var cancellables: Set<AnyCancellable> = []
     private var terminationObserver: AnyCancellable?
@@ -23,7 +25,8 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         NSApplication.shared.servicesProvider = self
         NSUpdateDynamicServices()
         appSettings.refreshLaunchAtLoginStatus()
-        if appSettings.taskCompletionNotificationEnabled {
+        if appSettings.taskCompletionNotificationEnabled,
+           !onboardingState.shouldShowFirstLaunchGuide {
             TaskCompletionNotifier.requestAuthorization()
         }
         handoffStore.removeExpiredFiles()
@@ -34,6 +37,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         )
         observeStatusModel()
         updateStatusItem()
+        showOnboardingIfNeeded()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -57,11 +61,16 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard notification.object as? NSWindow === workspaceWindow else {
+        guard let window = notification.object as? NSWindow else {
             return
         }
 
-        workspaceWindow = nil
+        if window === workspaceWindow {
+            workspaceWindow = nil
+        } else if window === onboardingWindow {
+            onboardingWindow = nil
+            onboardingState.completeFirstLaunchGuide()
+        }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -214,6 +223,12 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 Task { @MainActor in
                     self?.closeStatusPanel()
                     self?.showSettings()
+                }
+            },
+            openOnboarding: { [weak self] in
+                Task { @MainActor in
+                    self?.closeStatusPanel()
+                    self?.showOnboarding()
                 }
             },
             chooseCompression: { [weak self] in
@@ -459,6 +474,89 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         workspaceWindow?.makeKeyAndOrderFront(nil)
         workspaceWindow?.orderFrontRegardless()
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func showOnboardingIfNeeded() {
+        guard onboardingState.shouldShowFirstLaunchGuide else {
+            return
+        }
+
+        showOnboarding()
+    }
+
+    private func showOnboarding() {
+        if onboardingWindow == nil {
+            let actions = EasyZipOnboardingActions(
+                complete: { [weak self] in
+                    Task { @MainActor in
+                        self?.completeOnboarding()
+                    }
+                },
+                openWorkspace: { [weak self] in
+                    Task { @MainActor in
+                        self?.completeOnboarding()
+                        self?.showWorkspace()
+                    }
+                },
+                openFinderExtensionSettings: { [weak self] in
+                    Task { @MainActor in
+                        self?.openFinderExtensionSettings()
+                    }
+                },
+                requestNotificationAuthorization: {
+                    TaskCompletionNotifier.requestAuthorization()
+                }
+            )
+            let hostingController = NSHostingController(
+                rootView: EasyZipOnboardingView(actions: actions)
+            )
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "首次启动引导"
+            window.contentViewController = hostingController
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.center()
+            onboardingWindow = window
+        }
+
+        if onboardingWindow?.isMiniaturized == true {
+            onboardingWindow?.deminiaturize(nil)
+        }
+
+        onboardingWindow?.makeKeyAndOrderFront(nil)
+        onboardingWindow?.orderFrontRegardless()
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func completeOnboarding() {
+        onboardingState.completeFirstLaunchGuide()
+
+        guard let window = onboardingWindow else {
+            return
+        }
+
+        onboardingWindow = nil
+        window.close()
+    }
+
+    private func openFinderExtensionSettings() {
+        let settingsURLs = [
+            URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences?Finder"),
+            URL(string: "x-apple.systempreferences:com.apple.preferences.extensions?Finder")
+        ].compactMap { $0 }
+
+        for url in settingsURLs {
+            if NSWorkspace.shared.open(url) {
+                return
+            }
+        }
+
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Library/PreferencePanes/Extensions.prefPane"))
     }
 
     private func showSettings() {
