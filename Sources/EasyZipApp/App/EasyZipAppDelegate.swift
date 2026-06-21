@@ -1,9 +1,7 @@
 import AppKit
 import Combine
-import EasyZipCore
 import EasyZipShared
 import SwiftUI
-import UniformTypeIdentifiers
 
 @MainActor
 final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -355,16 +353,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
 
         NSApplication.shared.activate(ignoringOtherApps: true)
-        let panel = NSOpenPanel()
-        panel.title = mode == .compress ? "选择要压缩的项目" : "选择要解压的归档"
-        panel.message = mode == .compress ? "可以选择文件或文件夹" : "请选择支持的归档文件"
-        panel.prompt = "添加"
-        panel.allowsMultipleSelection = true
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = mode == .compress
-        panel.allowedContentTypes = mode == .extract
-            ? ArchiveFormat.supportedPathExtensions.compactMap { UTType(filenameExtension: $0) }
-            : []
+        let panel = FileSelectionPanelFactory.makeItemSelectionPanel(mode: mode)
 
         guard panel.runModal() == .OK else {
             return

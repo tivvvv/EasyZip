@@ -9,7 +9,11 @@ struct ArchivePreviewView: View {
     @State private var focusedEntryPath: String?
 
     private var visibleRows: [ArchiveEntryRow] {
-        sortedRows(model.archiveEntries.filter { $0.matches(searchText) })
+        ArchivePreviewSorter.sortedRows(
+            model.archiveEntries.filter { $0.matches(searchText) },
+            field: sortField,
+            descending: sortDescending
+        )
     }
 
     private var visibleSelectableRows: [ArchiveEntryRow] {
@@ -355,119 +359,6 @@ struct ArchivePreviewView: View {
         }
     }
 
-    private func sortedRows(_ rows: [ArchiveEntryRow]) -> [ArchiveEntryRow] {
-        rows.sorted { first, second in
-            let result = compare(first, second)
-
-            if result == .orderedSame {
-                return first.path.localizedStandardCompare(second.path) == .orderedAscending
-            }
-
-            return sortDescending ? result == .orderedDescending : result == .orderedAscending
-        }
-    }
-
-    private func compare(_ first: ArchiveEntryRow, _ second: ArchiveEntryRow) -> ComparisonResult {
-        switch sortField {
-        case .name:
-            first.path.localizedStandardCompare(second.path)
-        case .type:
-            compare(first.typeSortOrder, second.typeSortOrder)
-        case .size:
-            compare(first.uncompressedSize, second.uncompressedSize)
-        case .modifiedAt:
-            compare(first.modifiedAt, second.modifiedAt)
-        case .risk:
-            compare(first.riskSortOrder, second.riskSortOrder)
-        }
-    }
-
-    private func compare(_ first: Int, _ second: Int) -> ComparisonResult {
-        if first == second {
-            return .orderedSame
-        }
-
-        return first < second ? .orderedAscending : .orderedDescending
-    }
-
-    private func compare(_ first: Int64?, _ second: Int64?) -> ComparisonResult {
-        switch (first, second) {
-        case let (first?, second?):
-            if first == second {
-                return .orderedSame
-            }
-
-            return first < second ? .orderedAscending : .orderedDescending
-        case (nil, nil):
-            return .orderedSame
-        case (nil, _?):
-            return .orderedDescending
-        case (_?, nil):
-            return .orderedAscending
-        }
-    }
-
-    private func compare(_ first: Date?, _ second: Date?) -> ComparisonResult {
-        switch (first, second) {
-        case let (first?, second?):
-            if first == second {
-                return .orderedSame
-            }
-
-            return first < second ? .orderedAscending : .orderedDescending
-        case (nil, nil):
-            return .orderedSame
-        case (nil, _?):
-            return .orderedDescending
-        case (_?, nil):
-            return .orderedAscending
-        }
-    }
-}
-
-private enum ArchivePreviewSortField: String, CaseIterable, Identifiable {
-    case name
-    case type
-    case size
-    case modifiedAt
-    case risk
-
-    var id: String {
-        rawValue
-    }
-
-    var title: String {
-        switch self {
-        case .name:
-            "名称"
-        case .type:
-            "类型"
-        case .size:
-            "大小"
-        case .modifiedAt:
-            "修改时间"
-        case .risk:
-            "标记"
-        }
-    }
-}
-
-private struct ArchivePreviewSummary {
-    let totalCount: Int
-    let visibleCount: Int
-    let riskCount: Int
-    let totalSizeText: String
-
-    init(rows: [ArchiveEntryRow], visibleCount: Int) {
-        let totalSize = rows.reduce(Int64(0)) { partialResult, row in
-            partialResult + max(row.uncompressedSize ?? 0, 0)
-        }
-
-        totalCount = rows.count
-        self.visibleCount = visibleCount
-        riskCount = rows.filter { $0.risk != nil }.count
-        totalSizeText = ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
-    }
 }
 
 private struct SummaryBadge: View {

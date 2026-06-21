@@ -1,4 +1,3 @@
-import AppKit
 import EasyZipCore
 import SwiftUI
 
@@ -114,14 +113,10 @@ struct EasyZipSettingsView: View {
     }
 
     private func chooseDefaultOutputDirectory() {
-        let panel = NSOpenPanel()
-        panel.title = "选择默认输出目录"
-        panel.message = "任务结果将默认保存到这里"
-        panel.prompt = "选择"
-        panel.allowsMultipleSelection = false
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
+        let panel = FileSelectionPanelFactory.makeOutputDirectoryPanel(
+            title: "选择默认输出目录",
+            message: "任务结果将默认保存到这里"
+        )
 
         guard panel.runModal() == .OK,
               let url = panel.url else {

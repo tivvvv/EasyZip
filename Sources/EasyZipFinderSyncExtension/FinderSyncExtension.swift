@@ -9,23 +9,6 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
 
     private static let maximumLegacyURLLength = 6_000
 
-    private let archiveSuffixes = [
-        ".zip",
-        ".7z",
-        ".rar",
-        ".tar",
-        ".tar.gz",
-        ".tgz",
-        ".tar.bz2",
-        ".tbz2",
-        ".tbz",
-        ".tar.xz",
-        ".txz",
-        ".tar.zst",
-        ".tzst",
-        ".gz",
-        ".xz"
-    ]
     private let handoffStore = FinderActionHandoffStore()
 
     override init() {
@@ -168,9 +151,7 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
     }
 
     private func isSupportedArchive(_ url: URL) -> Bool {
-        let fileName = url.lastPathComponent.lowercased()
-
-        return archiveSuffixes.contains { fileName.hasSuffix($0) }
+        ArchiveFileNameMatcher.isSupportedArchiveFileURL(url)
     }
 
 }

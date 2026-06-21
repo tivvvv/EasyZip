@@ -1634,19 +1634,6 @@ private extension LibArchiveEngine {
         (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
     }
 
-    func pathname(for rawEntry: OpaquePointer) throws -> String {
-        guard let path = stringValue(archive_entry_pathname_utf8(rawEntry))
-            ?? stringValue(archive_entry_pathname(rawEntry)),
-            !path.isEmpty else {
-            throw ArchiveError.engineFailure(
-                engine: identifier,
-                message: "Archive entry has no path."
-            )
-        }
-
-        return path
-    }
-
     func skipEntryData(in archive: OpaquePointer, archiveURL: URL? = nil) throws {
         let status = archive_read_data_skip(archive)
 

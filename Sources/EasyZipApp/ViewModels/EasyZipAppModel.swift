@@ -180,16 +180,7 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         NSApplication.shared.activate(ignoringOtherApps: true)
-        let panel = NSOpenPanel()
-        panel.title = mode == .compress ? "选择要压缩的项目" : "选择要解压的归档"
-        panel.message = mode == .compress ? "可以选择文件或文件夹" : "请选择支持的归档文件"
-        panel.prompt = "添加"
-        panel.allowsMultipleSelection = true
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = mode == .compress
-        panel.allowedContentTypes = mode == .extract
-            ? ArchiveFormat.supportedPathExtensions.compactMap { UTType(filenameExtension: $0) }
-            : []
+        let panel = FileSelectionPanelFactory.makeItemSelectionPanel(mode: mode)
 
         if panel.runModal() == .OK {
             addFileURLs(panel.urls)
@@ -203,14 +194,7 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         NSApplication.shared.activate(ignoringOtherApps: true)
-        let panel = NSOpenPanel()
-        panel.title = "选择输出目录"
-        panel.message = "任务结果将保存到这里"
-        panel.prompt = "选择"
-        panel.allowsMultipleSelection = false
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
+        let panel = FileSelectionPanelFactory.makeOutputDirectoryPanel()
 
         if panel.runModal() == .OK, let url = panel.url {
             outputDirectory = url
