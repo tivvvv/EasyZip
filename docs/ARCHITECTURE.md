@@ -17,9 +17,11 @@
 - 共享模块: Swift Package `EasyZipShared`, 放置 App 和 Finder Sync extension 共用的轻量逻辑.
 - 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖常见归档格式的读写.
 - RAR 压缩: 系统 `libarchive` 不提供 RAR writer, 因此通过可选外部 `rar` 命令接入.
-- App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`.
+- App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`, 默认 ad-hoc 签名.
 - 产物检查: 通过 `Scripts/check_app_bundle.sh` 校验 `.app` 结构, plist 字段, Finder Sync extension 和签名.
-- 发布交付: 通过 `Scripts/release_build.sh` 生成 zip 产物, SHA256 校验文件和构建摘要.
+- DMG 交付: 通过 `Scripts/package_dmg.sh` 生成安装包, 通过 `Scripts/check_dmg.sh` 校验挂载内容.
+- 发布交付: 通过 `Scripts/release_build.sh` 生成 zip, dmg, SHA256 校验文件和构建摘要.
+- 公证交付: 通过 `Scripts/notarize_release.sh` 提交 dmg 公证, 需要 Developer ID 签名和 Apple 凭据.
 - 依赖交付: 当前使用 macOS 系统 `libarchive`, 后续如需跨系统版本一致性,
   再评估随 app bundle 携带动态库.
 - 并发模型: Swift Concurrency, 每个归档任务用独立 `Task`, 支持进度回调和取消.
@@ -140,6 +142,9 @@ EasyZipCore
 - Core 测试已引入真实归档 fixture, 覆盖 `.zip`, `.7z`, `.tar.gz`, 加密 zip, 损坏 zip 和路径穿越 zip.
 - GitHub Actions 已接入 push 和 pull request 校验, 会执行测试, 构建, 打包, 签名校验和规范扫描.
 - 发布构建会复用 app bundle 打包脚本和产物完整性检查脚本.
+- 发布构建会生成 zip 和 dmg, 并在摘要中记录版本号, UTC 构建时间, commit hash 和 SHA256.
+- DMG 打包会包含 `易压缩.app` 和 Applications 入口, 生成后会挂载校验.
+- Developer ID 签名可通过 `CODE_SIGN_IDENTITY` 注入, 公证步骤由独立脚本手动触发.
 - 产物完整性检查会覆盖 Finder Sync extension, URL scheme, Services, `LSUIElement`, 版本号和签名状态.
 - 当前不支持分卷归档.
 

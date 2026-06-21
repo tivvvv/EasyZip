@@ -14,6 +14,9 @@ mkdir -p "$XDG_CACHE_HOME" "$CLANG_MODULE_CACHE_PATH"
 
 bash -n Scripts/build_app_bundle.sh
 bash -n Scripts/check_app_bundle.sh
+bash -n Scripts/check_dmg.sh
+bash -n Scripts/notarize_release.sh
+bash -n Scripts/package_dmg.sh
 bash -n Scripts/release_build.sh
 swift test
 swift build --product EasyZipApp
@@ -28,7 +31,10 @@ scan_files=(
     docs/ARCHITECTURE.md
     Scripts/build_app_bundle.sh
     Scripts/check_app_bundle.sh
+    Scripts/check_dmg.sh
     Scripts/ci_check.sh
+    Scripts/notarize_release.sh
+    Scripts/package_dmg.sh
     Scripts/release_build.sh
 )
 

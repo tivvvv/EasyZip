@@ -10,6 +10,9 @@ BUILD_VERSION="${BUILD_VERSION:-1}"
 OUTPUT_DIR="${OUTPUT_DIR:-dist}"
 RELEASE_DIR="${RELEASE_DIR:-dist/release}"
 ARCHIVE_BASENAME="${ARCHIVE_BASENAME:-EasyZip-$MARKETING_VERSION-$BUILD_VERSION}"
+CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}"
+APP_CODE_SIGN_ENTITLEMENTS="${APP_CODE_SIGN_ENTITLEMENTS:-}"
+EXTENSION_CODE_SIGN_ENTITLEMENTS="${EXTENSION_CODE_SIGN_ENTITLEMENTS:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -17,6 +20,8 @@ APP_PATH="$REPO_ROOT/$OUTPUT_DIR/$APP_NAME.app"
 RELEASE_PATH="$REPO_ROOT/$RELEASE_DIR"
 ZIP_PATH="$RELEASE_PATH/$ARCHIVE_BASENAME.zip"
 CHECKSUM_PATH="$ZIP_PATH.sha256"
+DMG_PATH="$RELEASE_PATH/$ARCHIVE_BASENAME.dmg"
+DMG_CHECKSUM_PATH="$DMG_PATH.sha256"
 MANIFEST_PATH="$RELEASE_PATH/$ARCHIVE_BASENAME.txt"
 
 fail() {
@@ -33,6 +38,14 @@ ensure_path_inside_repo() {
 }
 
 write_manifest() {
+    local zip_checksum
+    local dmg_checksum
+    local git_commit
+
+    zip_checksum="$(cut -d ' ' -f 1 "$CHECKSUM_PATH")"
+    dmg_checksum="$(cut -d ' ' -f 1 "$DMG_CHECKSUM_PATH")"
+    git_commit="$(git rev-parse HEAD)"
+
     {
         echo "EasyZip release build"
         echo "App name: $APP_NAME"
@@ -40,10 +53,13 @@ write_manifest() {
         echo "Extension bundle identifier: $EXTENSION_BUNDLE_IDENTIFIER"
         echo "Marketing version: $MARKETING_VERSION"
         echo "Build version: $BUILD_VERSION"
-        echo "Archive: $(basename "$ZIP_PATH")"
-        echo "Checksum: $(cut -d ' ' -f 1 "$CHECKSUM_PATH")"
+        echo "Code sign identity: $CODE_SIGN_IDENTITY"
+        echo "Zip archive: $(basename "$ZIP_PATH")"
+        echo "Zip SHA256: $zip_checksum"
+        echo "DMG archive: $(basename "$DMG_PATH")"
+        echo "DMG SHA256: $dmg_checksum"
         echo "Built at UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        echo "Git commit: $(git rev-parse --short HEAD)"
+        echo "Git commit: $git_commit"
     } > "$MANIFEST_PATH"
 }
 
@@ -66,6 +82,9 @@ EXTENSION_BUNDLE_IDENTIFIER="$EXTENSION_BUNDLE_IDENTIFIER" \
 MARKETING_VERSION="$MARKETING_VERSION" \
 BUILD_VERSION="$BUILD_VERSION" \
 OUTPUT_DIR="$OUTPUT_DIR" \
+CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+APP_CODE_SIGN_ENTITLEMENTS="$APP_CODE_SIGN_ENTITLEMENTS" \
+EXTENSION_CODE_SIGN_ENTITLEMENTS="$EXTENSION_CODE_SIGN_ENTITLEMENTS" \
 "$SCRIPT_DIR/build_app_bundle.sh"
 
 APP_NAME="$APP_NAME" \
@@ -77,8 +96,22 @@ BUILD_VERSION="$BUILD_VERSION" \
 
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 shasum -a 256 "$ZIP_PATH" > "$CHECKSUM_PATH"
+
+APP_NAME="$APP_NAME" \
+BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \
+EXTENSION_BUNDLE_IDENTIFIER="$EXTENSION_BUNDLE_IDENTIFIER" \
+MARKETING_VERSION="$MARKETING_VERSION" \
+BUILD_VERSION="$BUILD_VERSION" \
+OUTPUT_DIR="$OUTPUT_DIR" \
+RELEASE_DIR="$RELEASE_DIR" \
+ARCHIVE_BASENAME="$ARCHIVE_BASENAME" \
+"$SCRIPT_DIR/package_dmg.sh" "$APP_PATH" "$DMG_PATH"
+
+shasum -a 256 "$DMG_PATH" > "$DMG_CHECKSUM_PATH"
 write_manifest
 
-echo "发布产物: $ZIP_PATH"
-echo "校验文件: $CHECKSUM_PATH"
+echo "Zip 产物: $ZIP_PATH"
+echo "Zip 校验文件: $CHECKSUM_PATH"
+echo "DMG 产物: $DMG_PATH"
+echo "DMG 校验文件: $DMG_CHECKSUM_PATH"
 echo "构建摘要: $MANIFEST_PATH"

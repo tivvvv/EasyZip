@@ -10,6 +10,9 @@ MARKETING_VERSION="${MARKETING_VERSION:-0.1.0}"
 BUILD_VERSION="${BUILD_VERSION:-1}"
 CONFIGURATION="${CONFIGURATION:-release}"
 OUTPUT_DIR="${OUTPUT_DIR:-dist}"
+CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}"
+APP_CODE_SIGN_ENTITLEMENTS="${APP_CODE_SIGN_ENTITLEMENTS:-}"
+EXTENSION_CODE_SIGN_ENTITLEMENTS="${EXTENSION_CODE_SIGN_ENTITLEMENTS:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -39,6 +42,22 @@ if [[ "$APP_PATH" == "$REPO_ROOT" || "$APP_PATH" == "/" ]]; then
     echo "输出路径不安全: $APP_PATH" >&2
     exit 1
 fi
+
+codesign_target() {
+    local target="$1"
+    local entitlements="${2:-}"
+    local args=(--force --sign "$CODE_SIGN_IDENTITY")
+
+    if [[ "$CODE_SIGN_IDENTITY" != "-" ]]; then
+        args+=(--options runtime --timestamp)
+    fi
+
+    if [[ -n "$entitlements" ]]; then
+        args+=(--entitlements "$entitlements")
+    fi
+
+    codesign "${args[@]}" "$target"
+}
 
 cd "$REPO_ROOT"
 swift build -c "$CONFIGURATION" --product "$PRODUCT_NAME"
@@ -86,8 +105,8 @@ chmod +x "$EXTENSION_EXECUTABLE_PATH"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_VERSION" "$EXTENSION_CONTENTS_PATH/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :NSExtension:NSExtensionPrincipalClass $EXTENSION_PRODUCT_NAME.$EXTENSION_PRODUCT_NAME" "$EXTENSION_CONTENTS_PATH/Info.plist"
 
-codesign --force --sign - "$EXTENSION_PATH"
-codesign --force --deep --sign - "$APP_PATH"
+codesign_target "$EXTENSION_PATH" "$EXTENSION_CODE_SIGN_ENTITLEMENTS"
+codesign_target "$APP_PATH" "$APP_CODE_SIGN_ENTITLEMENTS"
 codesign --verify --deep --strict "$APP_PATH"
 
 echo "已生成: $APP_PATH"
