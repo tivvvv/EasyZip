@@ -40,6 +40,9 @@ func archive_read_support_format_rar5(_ archive: OpaquePointer?) -> Int32
 @_silgen_name("archive_read_support_format_tar")
 func archive_read_support_format_tar(_ archive: OpaquePointer?) -> Int32
 
+@_silgen_name("archive_read_support_format_raw")
+func archive_read_support_format_raw(_ archive: OpaquePointer?) -> Int32
+
 @_silgen_name("archive_read_add_passphrase")
 func archive_read_add_passphrase(
     _ archive: OpaquePointer?,
@@ -83,6 +86,9 @@ func archive_write_set_format_zip(_ archive: OpaquePointer?) -> Int32
 
 @_silgen_name("archive_write_set_format_7zip")
 func archive_write_set_format_7zip(_ archive: OpaquePointer?) -> Int32
+
+@_silgen_name("archive_write_set_format_raw")
+func archive_write_set_format_raw(_ archive: OpaquePointer?) -> Int32
 
 @_silgen_name("archive_write_set_passphrase")
 func archive_write_set_passphrase(

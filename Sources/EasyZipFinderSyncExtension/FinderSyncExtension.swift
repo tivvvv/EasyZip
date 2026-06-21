@@ -20,7 +20,11 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
         ".tbz2",
         ".tbz",
         ".tar.xz",
-        ".txz"
+        ".txz",
+        ".tar.zst",
+        ".tzst",
+        ".gz",
+        ".xz"
     ]
     private let handoffStore = FinderActionHandoffStore()
 

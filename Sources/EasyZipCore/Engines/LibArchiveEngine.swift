@@ -48,7 +48,7 @@ public struct LibArchiveEngine: ArchiveEngine {
                 throw engineFailure(archive: archive, operation: "read header")
             }
 
-            entries.append(makeArchiveEntry(from: rawEntry))
+            entries.append(makeArchiveEntry(from: rawEntry, archiveURL: archiveURL))
             try skipEntryData(in: archive, archiveURL: archiveURL)
         }
 
@@ -122,7 +122,7 @@ public struct LibArchiveEngine: ArchiveEngine {
                 throw engineFailure(archive: archive, operation: "read header")
             }
 
-            let entryPath = try pathname(for: rawEntry)
+            let entryPath = entryPath(for: rawEntry, archiveURL: request.archiveURL)
             let fileType = archive_entry_filetype(rawEntry)
 
             guard entrySelector.shouldExtract(entryPath: entryPath, fileType: fileType) else {
@@ -207,6 +207,7 @@ public struct LibArchiveEngine: ArchiveEngine {
             sourceURLs: request.sourceURLs
         )
         try validateCompressionOptions(for: request)
+        try validateSingleFileCompressionRequestIfNeeded(request)
 
         let sourceItems = try makeSourceItems(for: request)
         let temporaryDestinationURL = try destinationPlanner.makeTemporaryDestinationURL(
@@ -358,7 +359,7 @@ private extension LibArchiveEngine {
                 throw engineFailure(archive: archive, operation: "read header")
             }
 
-            let entryPath = try pathname(for: rawEntry)
+            let entryPath = entryPath(for: rawEntry, archiveURL: archiveURL)
             let fileType = archive_entry_filetype(rawEntry)
 
             guard entrySelector.shouldExtract(entryPath: entryPath, fileType: fileType) else {
@@ -413,6 +414,10 @@ private extension LibArchiveEngine {
     }
 
     func extractionRootURL(for request: ExtractionRequest) -> URL {
+        if isSingleFileCompressionArchive(request.archiveURL) {
+            return request.destinationURL
+        }
+
         guard request.options.shouldCreateContainingDirectory else {
             return request.destinationURL
         }
@@ -423,6 +428,14 @@ private extension LibArchiveEngine {
         let safeDirectoryName = directoryName.isEmpty ? "归档内容" : directoryName
 
         return request.destinationURL.appendingPathComponent(safeDirectoryName, isDirectory: true)
+    }
+
+    func isSingleFileCompressionArchive(_ archiveURL: URL) -> Bool {
+        guard let format = ArchiveFormat.matching(filename: archiveURL.lastPathComponent) else {
+            return false
+        }
+
+        return format.isSingleFileCompression
     }
 
     func makeReader(for archiveURL: URL, password: String? = nil) throws -> OpaquePointer {
@@ -443,31 +456,15 @@ private extension LibArchiveEngine {
                 archive: archive,
                 operation: "enable filters"
             )
-            try require(
-                archive_read_support_format_zip(archive),
-                archive: archive,
-                operation: "enable zip reader"
-            )
-            try require(
-                archive_read_support_format_7zip(archive),
-                archive: archive,
-                operation: "enable 7z reader"
-            )
-            try require(
-                archive_read_support_format_rar(archive),
-                archive: archive,
-                operation: "enable rar reader"
-            )
-            try require(
-                archive_read_support_format_rar5(archive),
-                archive: archive,
-                operation: "enable rar5 reader"
-            )
-            try require(
-                archive_read_support_format_tar(archive),
-                archive: archive,
-                operation: "enable tar reader"
-            )
+            if isSingleFileCompressionArchive(archiveURL) {
+                try require(
+                    archive_read_support_format_raw(archive),
+                    archive: archive,
+                    operation: "enable raw reader"
+                )
+            } else {
+                try enableStructuredReaders(for: archive)
+            }
             try addPassword(password, to: archive, archiveURL: archiveURL)
             try archiveURL.path.withCString { path in
                 try requireReadStatus(
@@ -483,6 +480,34 @@ private extension LibArchiveEngine {
             _ = archive_read_free(archive)
             throw error
         }
+    }
+
+    func enableStructuredReaders(for archive: OpaquePointer) throws {
+        try require(
+            archive_read_support_format_zip(archive),
+            archive: archive,
+            operation: "enable zip reader"
+        )
+        try require(
+            archive_read_support_format_7zip(archive),
+            archive: archive,
+            operation: "enable 7z reader"
+        )
+        try require(
+            archive_read_support_format_rar(archive),
+            archive: archive,
+            operation: "enable rar reader"
+        )
+        try require(
+            archive_read_support_format_rar5(archive),
+            archive: archive,
+            operation: "enable rar5 reader"
+        )
+        try require(
+            archive_read_support_format_tar(archive),
+            archive: archive,
+            operation: "enable tar reader"
+        )
     }
 
     func addPassword(
@@ -563,6 +588,12 @@ private extension LibArchiveEngine {
         case .tarZstd:
             try configureTarWriter(archive, filter: archive_write_add_filter_zstd, filterName: "zstd")
             try setFilterCompressionLevel(archive, options: request.options)
+        case .gzip:
+            try configureRawWriter(archive, filter: archive_write_add_filter_gzip, filterName: "gzip")
+            try setFilterCompressionLevel(archive, options: request.options)
+        case .xz:
+            try configureRawWriter(archive, filter: archive_write_add_filter_xz, filterName: "xz")
+            try setFilterCompressionLevel(archive, options: request.options)
         }
     }
 
@@ -573,6 +604,22 @@ private extension LibArchiveEngine {
         }
 
         throw ArchiveError.unsupportedEncryptedCompression(format: request.format)
+    }
+
+    func validateSingleFileCompressionRequestIfNeeded(_ request: CompressionRequest) throws {
+        guard request.format.isSingleFileCompression else {
+            return
+        }
+
+        guard request.sourceURLs.count == 1,
+              let sourceURL = request.sourceURLs.first else {
+            throw ArchiveError.invalidSource(request.sourceURLs.dropFirst().first ?? request.destinationURL)
+        }
+
+        guard let attributes = try? fileManager.attributesOfItem(atPath: sourceURL.path),
+              attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw ArchiveError.invalidSource(sourceURL)
+        }
     }
 
     func configureZIPEncryption(
@@ -616,6 +663,23 @@ private extension LibArchiveEngine {
             archive_write_set_format_pax_restricted(archive),
             archive: archive,
             operation: "enable tar writer"
+        )
+        try requireFilterStatus(
+            filter(archive),
+            archive: archive,
+            operation: "enable \(filterName) filter"
+        )
+    }
+
+    func configureRawWriter(
+        _ archive: OpaquePointer,
+        filter: (OpaquePointer?) -> Int32,
+        filterName: String
+    ) throws {
+        try require(
+            archive_write_set_format_raw(archive),
+            archive: archive,
+            operation: "enable raw writer"
         )
         try requireFilterStatus(
             filter(archive),
@@ -690,12 +754,8 @@ private extension LibArchiveEngine {
         }
     }
 
-    func makeArchiveEntry(from rawEntry: OpaquePointer) -> ArchiveEntry {
-        let path = stringValue(
-            archive_entry_pathname_utf8(rawEntry)
-        ) ?? stringValue(
-            archive_entry_pathname(rawEntry)
-        ) ?? ""
+    func makeArchiveEntry(from rawEntry: OpaquePointer, archiveURL: URL) -> ArchiveEntry {
+        let path = entryPath(for: rawEntry, archiveURL: archiveURL)
 
         let hardLinkTarget = stringValue(
             archive_entry_hardlink_utf8(rawEntry)
@@ -728,6 +788,25 @@ private extension LibArchiveEngine {
             modifiedAt: modifiedAt,
             permissions: UInt16(archive_entry_perm(rawEntry))
         )
+    }
+
+    func entryPath(for rawEntry: OpaquePointer, archiveURL: URL) -> String {
+        let path = stringValue(
+            archive_entry_pathname_utf8(rawEntry)
+        ) ?? stringValue(
+            archive_entry_pathname(rawEntry)
+        ) ?? ""
+
+        guard isSingleFileCompressionArchive(archiveURL),
+              path.isEmpty || path == "data" else {
+            return path
+        }
+
+        let fileName = ArchiveFormat.removingArchiveExtension(
+            from: archiveURL.lastPathComponent
+        )
+
+        return fileName.isEmpty ? "data" : fileName
     }
 
     func validateEntryCanBeRead(

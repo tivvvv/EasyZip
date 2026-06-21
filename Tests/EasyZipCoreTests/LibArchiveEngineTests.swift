@@ -36,6 +36,34 @@ final class LibArchiveEngineTests: XCTestCase {
         try await assertRoundTrip(format: .tarZstd, archiveName: "sample.tar.zst")
     }
 
+    func testCreatesListsAndExtractsGzipFile() async throws {
+        try await assertSingleFileRoundTrip(format: .gzip, archiveName: "hello.txt.gz")
+    }
+
+    func testCreatesListsAndExtractsXzFile() async throws {
+        try await assertSingleFileRoundTrip(format: .xz, archiveName: "hello.txt.xz")
+    }
+
+    func testListEntriesRejectsInvalidStructuredArchive() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+
+        let archiveURL = workspaceURL.appendingPathComponent("broken.zip")
+        try "not an archive".write(to: archiveURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await LibArchiveEngine().listEntries(in: archiveURL)
+            XCTFail("Expected invalid archive read failure.")
+        } catch ArchiveError.engineFailure(let engine, let message) {
+            XCTAssertEqual(engine, "libarchive")
+            XCTAssertFalse(message.isEmpty)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testDefaultArchiveServiceUsesLibArchiveEngine() async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -293,6 +321,32 @@ final class LibArchiveEngineTests: XCTestCase {
         }
 
         XCTAssertFalse(fileManager.fileExists(atPath: archiveURL.path))
+    }
+
+    func testSingleFileCompressionRejectsDirectorySource() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+
+        let sourceURL = try makeFixtureSource(in: workspaceURL)
+        let archiveURL = workspaceURL.appendingPathComponent("source.gz")
+        let engine = LibArchiveEngine()
+
+        do {
+            try await engine.create(
+                CompressionRequest(
+                    sourceURLs: [sourceURL],
+                    destinationURL: archiveURL,
+                    format: .gzip
+                )
+            )
+            XCTFail("Expected invalid source error.")
+        } catch ArchiveError.invalidSource(let url) {
+            XCTAssertEqual(url, sourceURL)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testExtractRenamesConflictingFiles() async throws {
@@ -1251,6 +1305,49 @@ private extension LibArchiveEngineTests {
         XCTAssertTrue(isDirectory(emptyDirectoryURL))
         XCTAssertEqual(try fileManager.destinationOfSymbolicLink(atPath: symlinkURL.path), "hello.txt")
         try assertMetadata(for: helloURL)
+    }
+
+    func assertSingleFileRoundTrip(format: ArchiveFormat, archiveName: String) async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+
+        let sourceURL = workspaceURL.appendingPathComponent("hello.txt")
+        let archiveURL = workspaceURL.appendingPathComponent(archiveName)
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        let engine = LibArchiveEngine()
+
+        try "hello single file".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try await engine.create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: format,
+                options: .init(includeHiddenFiles: true)
+            )
+        )
+
+        XCTAssertTrue(fileManager.fileExists(atPath: archiveURL.path))
+
+        let entries = try await engine.listEntries(in: archiveURL)
+        XCTAssertEqual(entries.map(\.path), ["hello.txt"])
+        XCTAssertEqual(entries.first?.kind, .file)
+
+        try await engine.extract(
+            ExtractionRequest(
+                archiveURL: archiveURL,
+                destinationURL: outputURL,
+                options: .init(
+                    overwritePolicy: .overwrite,
+                    shouldCreateContainingDirectory: true
+                )
+            )
+        )
+
+        let extractedFileURL = outputURL.appendingPathComponent("hello.txt")
+        XCTAssertEqual(try String(contentsOf: extractedFileURL, encoding: .utf8), "hello single file")
+        XCTAssertFalse(fileManager.fileExists(atPath: outputURL.appendingPathComponent("hello/hello.txt").path))
     }
 
     func assertExtractRejectsResourceLimit(

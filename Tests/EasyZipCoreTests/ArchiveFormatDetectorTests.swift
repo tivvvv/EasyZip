@@ -77,6 +77,13 @@ final class ArchiveFormatDetectorTests: XCTestCase {
         XCTAssertEqual(aliasFormat, .tarZstd)
     }
 
+    func testDetectsSingleFileCompressionByExtension() throws {
+        let detector = DefaultArchiveFormatDetector()
+
+        XCTAssertEqual(try detector.detectFormat(for: URL(fileURLWithPath: "/tmp/example.gz")), .gzip)
+        XCTAssertEqual(try detector.detectFormat(for: URL(fileURLWithPath: "/tmp/example.xz")), .xz)
+    }
+
     func testRemovesCompoundArchiveExtension() {
         let baseName = ArchiveFormat.removingArchiveExtension(from: "example.tar.gz")
 
@@ -155,11 +162,23 @@ final class ArchiveFormatDetectorTests: XCTestCase {
             TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
         }
         let zstdURL = workspaceURL.appendingPathComponent("archive.zstd-data")
+        let gzipURL = workspaceURL.appendingPathComponent("archive.gz")
+        let tarGzipURL = workspaceURL.appendingPathComponent("archive.tar.gz")
+        let xzURL = workspaceURL.appendingPathComponent("archive.xz")
+        let tarXzURL = workspaceURL.appendingPathComponent("archive.tar.xz")
         try Data([0x28, 0xB5, 0x2F, 0xFD, 0x00]).write(to: zstdURL)
+        try Data([0x1F, 0x8B, 0x08, 0x00]).write(to: gzipURL)
+        try Data([0x1F, 0x8B, 0x08, 0x00]).write(to: tarGzipURL)
+        try Data([0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]).write(to: xzURL)
+        try Data([0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]).write(to: tarXzURL)
 
-        let format = try DefaultArchiveFormatDetector().detectFormat(for: zstdURL)
+        let detector = DefaultArchiveFormatDetector()
 
-        XCTAssertEqual(format, .tarZstd)
+        XCTAssertEqual(try detector.detectFormat(for: zstdURL), .tarZstd)
+        XCTAssertEqual(try detector.detectFormat(for: gzipURL), .gzip)
+        XCTAssertEqual(try detector.detectFormat(for: tarGzipURL), .tarGzip)
+        XCTAssertEqual(try detector.detectFormat(for: xzURL), .xz)
+        XCTAssertEqual(try detector.detectFormat(for: tarXzURL), .tarXz)
     }
 
     private func makeTemporaryFileURL(filename: String) throws -> URL {

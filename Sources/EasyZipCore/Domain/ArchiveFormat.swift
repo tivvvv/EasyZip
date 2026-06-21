@@ -8,6 +8,8 @@ public enum ArchiveFormat: CaseIterable, Hashable, Sendable {
     case tarBzip2
     case tarXz
     case tarZstd
+    case gzip
+    case xz
 
     public var fileExtension: String {
         fileExtensions[0]
@@ -31,6 +33,10 @@ public enum ArchiveFormat: CaseIterable, Hashable, Sendable {
             ["tar.xz", "txz"]
         case .tarZstd:
             ["tar.zst", "tzst"]
+        case .gzip:
+            ["gz"]
+        case .xz:
+            ["xz"]
         }
     }
 
@@ -52,6 +58,10 @@ public enum ArchiveFormat: CaseIterable, Hashable, Sendable {
             "TAR.XZ"
         case .tarZstd:
             "TAR.ZST"
+        case .gzip:
+            "GZIP"
+        case .xz:
+            "XZ"
         }
     }
 
@@ -63,7 +73,16 @@ public enum ArchiveFormat: CaseIterable, Hashable, Sendable {
         switch self {
         case .zip:
             true
-        case .rar, .sevenZip, .tar, .tarGzip, .tarBzip2, .tarXz, .tarZstd:
+        case .rar, .sevenZip, .tar, .tarGzip, .tarBzip2, .tarXz, .tarZstd, .gzip, .xz:
+            false
+        }
+    }
+
+    public var isSingleFileCompression: Bool {
+        switch self {
+        case .gzip, .xz:
+            true
+        case .zip, .rar, .sevenZip, .tar, .tarGzip, .tarBzip2, .tarXz, .tarZstd:
             false
         }
     }

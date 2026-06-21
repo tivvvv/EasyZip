@@ -28,6 +28,7 @@ final class EasyZipAppModel: ObservableObject {
     @Published var selectedFormat: ArchiveFormat = .zip {
         didSet {
             normalizeCompressionEncryptionForSelectedFormat()
+            updateDefaultArchiveNameAfterFormatChange(from: oldValue)
             resetProgressIfIdle()
             refreshExternalToolAvailability()
         }
@@ -750,12 +751,35 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         if selectedItems.count == 1, let firstItem = selectedItems.first {
-            archiveName = firstItem.deletingPathExtension().lastPathComponent
+            archiveName = defaultArchiveName(for: firstItem, format: selectedFormat)
         } else if selectedItems.isEmpty {
             archiveName = "归档文件"
         } else {
             archiveName = "批量归档"
         }
+    }
+
+    private func updateDefaultArchiveNameAfterFormatChange(from oldFormat: ArchiveFormat) {
+        guard mode == .compress,
+              selectedItems.count == 1,
+              let firstItem = selectedItems.first else {
+            return
+        }
+
+        let oldDefaultName = defaultArchiveName(for: firstItem, format: oldFormat)
+        guard archiveName == oldDefaultName else {
+            return
+        }
+
+        archiveName = defaultArchiveName(for: firstItem, format: selectedFormat)
+    }
+
+    private func defaultArchiveName(for url: URL, format: ArchiveFormat) -> String {
+        if format.isSingleFileCompression {
+            return url.lastPathComponent
+        }
+
+        return url.deletingPathExtension().lastPathComponent
     }
 
     private func resetProgressIfIdle() {

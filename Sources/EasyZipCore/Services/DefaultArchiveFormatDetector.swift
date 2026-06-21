@@ -39,8 +39,10 @@ public struct DefaultArchiveFormatDetector: ArchiveFormatDetecting {
             return .rar
         }
 
+        let filenameFormat = ArchiveFormat.matching(filename: archiveURL.lastPathComponent)
+
         if data.starts(with: [0x1F, 0x8B]) {
-            return .tarGzip
+            return filenameFormat == .gzip ? .gzip : .tarGzip
         }
 
         if data.starts(with: [0x42, 0x5A, 0x68]) {
@@ -48,7 +50,7 @@ public struct DefaultArchiveFormatDetector: ArchiveFormatDetecting {
         }
 
         if data.starts(with: [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]) {
-            return .tarXz
+            return filenameFormat == .xz ? .xz : .tarXz
         }
 
         if data.starts(with: [0x28, 0xB5, 0x2F, 0xFD]) {

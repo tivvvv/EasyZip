@@ -2,10 +2,10 @@
 
 ## 第一期目标
 
-- 支持 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` 的列表预览, 解压, 压缩.
+- 支持 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst`, `.gz`, `.xz` 的列表预览, 解压, 压缩.
 - 支持 `.rar` 的列表预览和解压; RAR 压缩通过外部 `rar` 命令提供.
 - 先不做加密压缩, 分卷压缩和云盘同步.
-- 核心能力必须和 UI 解耦, 后续新增 RAR, 单文件 gzip, 单文件 xz 等格式时只增加引擎或格式适配.
+- 核心能力必须和 UI 解耦, 后续新增格式时只增加引擎或格式适配.
 
 ## 技术栈
 
@@ -93,6 +93,7 @@ EasyZipCore
 
 - `LibArchiveEngine` 已实现 `.zip`, `.7z`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` 的列表读取,
   解压和压缩.
+- `LibArchiveEngine` 已实现 `.gz` 和 `.xz` 单文件压缩流的列表读取, 解压和压缩.
 - `LibArchiveEngine` 已实现 `.rar` 的列表读取和解压.
 - `RARCommandCompressionEngine` 已实现 `.rar` 创建的外部命令适配; 未安装 `rar` 时返回明确错误.
 - `RARCommandResolver` 集中检测外部 `rar` 命令, UI 和 RAR 压缩引擎共用同一判断.
@@ -110,6 +111,7 @@ EasyZipCore
 - `LibArchiveEngine` 解压前会流式预扫描归档计划, 写入文件时会按真实字节数再次校验资源限制.
 - 列表预览会标记 hard link, 但不会在解压阶段创建 hard link.
 - 解压默认创建与归档同名的外层目录, Core 可通过 `ExtractionOptions.shouldCreateContainingDirectory` 关闭.
+- 单文件压缩流解压不创建外层目录, 输出文件名来自归档文件名去除 `.gz` 或 `.xz` 后的结果.
 - 解压可通过 `ExtractionOptions.selectedEntryPaths` 只处理指定条目或目录子树.
 - 所选条目解压的匹配逻辑由 `LibArchiveExtractionEntrySelector` 独立承载, 便于覆盖目录子树和祖先目录场景.
 - 压缩写入先生成临时归档, 成功关闭后再替换最终目标.

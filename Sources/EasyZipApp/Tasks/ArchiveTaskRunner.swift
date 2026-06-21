@@ -132,9 +132,17 @@ enum ArchiveTaskRunner {
             return baseDirectory
         }
 
+        if isSingleFileCompressionArchive(archiveURL) {
+            return baseDirectory
+        }
+
         let directoryName = extractionContainingDirectoryName(for: archiveURL)
 
         return baseDirectory.appendingPathComponent(directoryName, isDirectory: true)
+    }
+
+    private static func isSingleFileCompressionArchive(_ archiveURL: URL) -> Bool {
+        ArchiveFormat.matching(filename: archiveURL.lastPathComponent)?.isSingleFileCompression == true
     }
 
     private static func extractionContainingDirectoryName(for archiveURL: URL) -> String {
