@@ -1,4 +1,4 @@
-import EasyZipCore
+import EasyZipShared
 import SwiftUI
 
 struct FileQueueView: View {
@@ -94,6 +94,6 @@ private struct QueueRow: View {
     }
 
     private var iconName: String {
-        ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent) ? "doc.zipper" : "doc"
+        ArchiveFileNameMatcher.isSupportedArchiveFileURL(url) ? "doc.zipper" : "doc"
     }
 }

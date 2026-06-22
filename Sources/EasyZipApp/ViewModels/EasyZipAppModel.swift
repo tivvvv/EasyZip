@@ -207,18 +207,23 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
-        clearExtractionPassword()
-        let filteredURLs = urls.filter { url in
-            if mode == .compress {
-                return true
-            }
-
-            return ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent)
+        let inputFilterResult = ArchiveInputFilter.filter(urls, for: mode)
+        guard !inputFilterResult.acceptedFileURLs.isEmpty else {
+            reportNoAcceptableFiles(mode: mode)
+            return
         }
-        selectedItems = FileURLListNormalizer.uniqueStandardizedFileURLs(selectedItems + filteredURLs)
+
+        clearExtractionPassword()
+        selectedItems = FileURLListNormalizer.uniqueStandardizedFileURLs(
+            selectedItems + inputFilterResult.acceptedFileURLs
+        )
         resetProgressIfIdle()
         updateDefaultArchiveName()
         refreshArchivePreview()
+
+        if inputFilterResult.rejectedCount > 0 {
+            reportRejectedArchiveInputs(count: inputFilterResult.rejectedCount, mode: mode)
+        }
     }
 
     func removeItem(_ url: URL) {
@@ -248,16 +253,27 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     func prepareExternalSelection(mode: WorkspaceMode, fileURLs: [URL]) {
-        let acceptedFileURLs = acceptableFileURLs(fileURLs, for: mode)
+        let inputFilterResult = ArchiveInputFilter.filter(fileURLs, for: mode)
+        let acceptedFileURLs = FileURLListNormalizer.uniqueStandardizedFileURLs(
+            inputFilterResult.acceptedFileURLs
+        )
 
         guard !acceptedFileURLs.isEmpty else {
-            alert = AppAlert(title: "没有可处理的文件", message: "请选择支持的文件后重试")
+            reportNoAcceptableFiles(mode: mode)
             return
         }
 
         guard !isRunning else {
-            deferExternalSelection(mode: mode, fileURLs: acceptedFileURLs)
+            deferExternalSelection(
+                mode: mode,
+                fileURLs: acceptedFileURLs,
+                rejectedCount: inputFilterResult.rejectedCount
+            )
             return
+        }
+
+        if inputFilterResult.rejectedCount > 0 {
+            reportRejectedArchiveInputs(count: inputFilterResult.rejectedCount, mode: mode)
         }
 
         applyExternalSelection(mode: mode, fileURLs: acceptedFileURLs)
@@ -331,7 +347,7 @@ final class EasyZipAppModel: ObservableObject {
         )
     }
 
-    private func deferExternalSelection(mode: WorkspaceMode, fileURLs: [URL]) {
+    private func deferExternalSelection(mode: WorkspaceMode, fileURLs: [URL], rejectedCount: Int) {
         let mergedFileURLs: [URL]
 
         if let pendingExternalSelection, pendingExternalSelection.mode == mode {
@@ -343,22 +359,13 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         pendingExternalSelection = PendingExternalSelection(mode: mode, fileURLs: mergedFileURLs)
+        let rejectedDetail = rejectedCount > 0
+            ? ", 已忽略 \(rejectedCount) 个不支持解压的文件"
+            : ""
         alert = AppAlert(
             title: "已暂存新选择",
-            message: "当前任务完成后可应用 \(mergedFileURLs.count) 项\(mode.rawValue)文件"
+            message: "当前任务完成后可应用 \(mergedFileURLs.count) 项\(mode.rawValue)文件\(rejectedDetail)"
         )
-    }
-
-    private func acceptableFileURLs(_ urls: [URL], for mode: WorkspaceMode) -> [URL] {
-        let filteredURLs = urls.filter { url in
-            if mode == .compress {
-                return true
-            }
-
-            return ArchiveFormat.isSupportedArchiveFilename(url.lastPathComponent)
-        }
-
-        return FileURLListNormalizer.uniqueStandardizedFileURLs(filteredURLs)
     }
 
     func startOperation() {
@@ -727,6 +734,22 @@ final class EasyZipAppModel: ObservableObject {
         progressFraction = 0
         progressText = "等待外部工具"
         alert = AppAlert(title: title, message: message)
+    }
+
+    private func reportNoAcceptableFiles(mode: WorkspaceMode) {
+        let message = mode == .extract ? "请选择支持的归档文件后重试" : "请选择文件后重试"
+        alert = AppAlert(title: "没有可处理的文件", message: message)
+    }
+
+    private func reportRejectedArchiveInputs(count: Int, mode: WorkspaceMode) {
+        guard mode == .extract, count > 0 else {
+            return
+        }
+
+        alert = AppAlert(
+            title: "已忽略不支持的文件",
+            message: "已忽略 \(count) 个不支持解压的文件"
+        )
     }
 
     private func updateDefaultArchiveName() {

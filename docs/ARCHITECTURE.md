@@ -60,6 +60,7 @@ EasyZip.app
 EasyZipShared
   FinderActionHandoffStore
   FileURLListNormalizer
+  ArchiveFileNameMatcher
 
 EasyZipCore
   Domain
@@ -103,6 +104,7 @@ EasyZipCore
 - `DefaultArchiveFormatDetector` 优先读取文件头 magic number, 无法识别时回退扩展名.
 - `ArchiveService.makeDefault()` 默认注册 `LibArchiveEngine` 和 `RARCommandCompressionEngine`.
 - App, Finder Sync extension 和 Finder handoff 共用 `FileURLListNormalizer` 做文件 URL 标准化和去重.
+- App 和 Finder Sync extension 共用 `ArchiveFileNameMatcher` 做归档文件名后缀匹配.
 - 解压默认通过 `ArchivePathValidator` 校验条目路径.
 - 解压写入前会校验目标父目录的符号链接解析结果, 避免通过既有符号链接逃逸.
 - `ArchivePathValidator` 会拒绝路径穿越, Windows drive path, 空组件, 控制字符和 Unicode 双向控制字符.
@@ -120,6 +122,7 @@ EasyZipCore
 - 图形界面在选择 RAR 或 TAR.ZST 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
 - 归档预览支持搜索过滤, 多维排序, 层级缩进, 汇总统计, 条目详情, 风险条目标记和所选条目解压.
 - 归档预览支持多选快捷操作, 可按当前结果, 文件, 目录和风险项快速生成解压选择.
+- 工作台通过 `ArchiveInputFilter` 统一过滤输入, 解压模式会保留可处理归档并提示忽略的不支持文件.
 - 压缩密码通过 `CompressionOptions.password` 传入, 当前仅 ZIP 使用 libarchive 写入 AES-256 加密.
 - RAR 加密压缩暂不支持, 避免通过外部命令参数暴露密码.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
