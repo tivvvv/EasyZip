@@ -58,6 +58,7 @@ struct EasyZipSettingsView: View {
                     }
 
                     Picker("冲突策略", selection: $settings.defaultOverwritePolicy) {
+                        Text("询问").tag(OverwritePolicy.ask)
                         Text("自动重命名").tag(OverwritePolicy.rename)
                         Text("覆盖").tag(OverwritePolicy.overwrite)
                         Text("跳过").tag(OverwritePolicy.skip)

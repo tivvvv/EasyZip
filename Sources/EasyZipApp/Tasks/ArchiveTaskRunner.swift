@@ -48,6 +48,7 @@ enum ArchiveTaskRunner {
         shouldCreateContainingDirectory: Bool,
         selectedEntryPaths: Set<String> = [],
         password: String? = nil,
+        conflictResolver: ArchiveConflictResolver? = nil,
         progressHandler: ArchiveProgressHandler?
     ) async throws -> TaskResult {
         let service = ArchiveService.makeDefault()
@@ -72,6 +73,7 @@ enum ArchiveTaskRunner {
                 options: ExtractionOptions(
                     overwritePolicy: overwritePolicy,
                     shouldCreateContainingDirectory: shouldCreateContainingDirectory,
+                    conflictResolver: conflictResolver,
                     selectedEntryPaths: selectedEntryPaths,
                     password: password
                 )

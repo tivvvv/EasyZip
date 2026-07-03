@@ -1,4 +1,4 @@
-enum WorkspaceMode: String, CaseIterable, Identifiable {
+enum WorkspaceMode: String, CaseIterable, Identifiable, Sendable {
     case compress = "压缩"
     case extract = "解压"
 

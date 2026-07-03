@@ -118,17 +118,19 @@ EasyZipCore
 - 所选条目解压的匹配逻辑由 `LibArchiveExtractionEntrySelector` 独立承载, 便于覆盖目录子树和祖先目录场景.
 - 压缩写入先生成临时归档, 成功关闭后再替换最终目标.
 - libarchive 写入会透传 `CompressionOptions.compressionLevel`, `.tar` 无压缩时忽略该选项.
-- 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; `ask` 需要 resolver 给出明确决策.
+- 解压冲突支持 `overwrite`, `skip`, `ask` 和 `rename`; App 通过冲突弹窗为 `ask` 提供明确决策.
 - 图形界面在选择 RAR 或 TAR.ZST 压缩时展示外部工具状态, 并在任务开始前拦截缺失工具.
 - 归档预览支持搜索过滤, 多维排序, 层级缩进, 汇总统计, 条目详情, 风险条目标记和所选条目解压.
 - 归档预览支持多选快捷操作, 可按当前结果, 文件, 目录和风险项快速生成解压选择.
 - 工作台通过 `ArchiveInputFilter` 统一过滤输入, 解压模式会保留可处理归档并提示忽略的不支持文件.
+- 工作台在解压冲突策略为 `ask` 时展示冲突弹窗, 支持单次决策和应用到后续冲突.
 - 压缩密码通过 `CompressionOptions.password` 传入, 当前仅 ZIP 使用 libarchive 写入 AES-256 加密.
 - RAR 加密压缩暂不支持, 避免通过外部命令参数暴露密码.
 - App 通过 `LSUIElement` 和 accessory activation policy 后台运行, 默认不显示 Dock 图标.
 - AppDelegate 管理菜单栏图标和轻量状态面板, 按需创建任务工作台窗口.
 - App 侧按 `App`, `MenuBar`, `Diagnostics`, `Onboarding`, `Workspace`, `ViewModels`, `Tasks`, `Persistence` 和 `Support` 拆分.
 - 菜单栏状态面板和任务工作台共用同一个 `EasyZipAppModel`, 因此进度, 结果和最近记录保持同步.
+- 工作台和菜单栏状态面板共用当前会话任务队列, 队列项保存任务快照, 状态, 进度和结果.
 - `EasyZipOnboardingState` 使用 `UserDefaults` 记录首次启动引导完成状态.
 - 首次启动引导由 AppDelegate 按需创建独立窗口, 完成或关闭后不再自动展示.
 - 菜单栏状态面板可重新打开首次启动引导.
@@ -136,6 +138,7 @@ EasyZipCore
 - Finder Sync 启用状态不做不稳定推断, 诊断页提供扩展设置入口让用户确认.
 - 诊断页可从菜单栏状态面板和设置页打开.
 - `ArchiveTaskRunner` 负责 UI 层任务编排, `EasyZipAppModel` 只保留状态流转和用户操作入口.
+- `ArchiveQueuedTask` 负责描述当前会话任务队列项, 完成后会清理快照中的密码字段.
 - `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存默认输出目录, 默认压缩格式和默认冲突策略.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存通知开关和外层目录开关.

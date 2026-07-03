@@ -54,6 +54,25 @@ final class EasyZipAppSettingsTests: XCTestCase {
         XCTAssertEqual(authorizationRequestCount, 1)
     }
 
+    func testPersistsAskConflictPolicy() {
+        let defaults = makeUserDefaults()
+        let settings = EasyZipAppSettings(
+            userDefaults: defaults,
+            launchAtLoginController: StubLaunchAtLoginController(isEnabled: false),
+            notificationAuthorizationRequester: {}
+        )
+
+        settings.defaultOverwritePolicy = .ask
+
+        let reloadedSettings = EasyZipAppSettings(
+            userDefaults: defaults,
+            launchAtLoginController: StubLaunchAtLoginController(isEnabled: false),
+            notificationAuthorizationRequester: {}
+        )
+
+        XCTAssertEqual(reloadedSettings.defaultOverwritePolicy, .ask)
+    }
+
     func testClearsDefaultOutputDirectory() {
         let defaults = makeUserDefaults()
         let settings = EasyZipAppSettings(

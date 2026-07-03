@@ -86,6 +86,7 @@ struct OptionsPanelView: View {
             } else {
                 LabeledContent("冲突处理") {
                     Picker("冲突处理", selection: $model.overwritePolicy) {
+                        Text("询问").tag(OverwritePolicy.ask)
                         Text("自动重命名").tag(OverwritePolicy.rename)
                         Text("覆盖").tag(OverwritePolicy.overwrite)
                         Text("跳过").tag(OverwritePolicy.skip)

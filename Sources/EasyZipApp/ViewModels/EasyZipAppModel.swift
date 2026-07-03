@@ -57,21 +57,26 @@ final class EasyZipAppModel: ObservableObject {
     @Published var isRunning = false
     @Published var isDropTargeted = false
     @Published var taskResult: TaskResult?
+    @Published private(set) var taskQueue: [ArchiveQueuedTask] = []
     @Published private(set) var rarCommandAvailability = RARCommandResolver().availability()
     @Published private(set) var zstdCommandAvailability = ZstdCommandResolver().availability()
     @Published private(set) var recentTasks = RecentArchiveStore.loadTasks()
     @Published private(set) var recentOutputDirectories = RecentArchiveStore.loadOutputDirectories()
     @Published private(set) var pendingExternalSelection: PendingExternalSelection?
     @Published var passwordPrompt: ArchivePasswordPrompt?
+    @Published var conflictPrompt: ArchiveConflictPrompt?
     @Published var alert: AppAlert?
 
     private var operationTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
+    private var activeQueuedTaskID: UUID?
     private let settings: EasyZipAppSettings
     private let rarCommandResolver: RARCommandResolver
     private let zstdCommandResolver: ZstdCommandResolver
     private var settingsCancellables: Set<AnyCancellable> = []
     private var extractionPassword: String?
+    private var conflictDecisionCoordinator: ArchiveConflictDecisionCoordinator?
+    private var passwordRetryQueuedTaskID: UUID?
 
     init(
         settings: EasyZipAppSettings = .shared,
@@ -159,6 +164,14 @@ final class EasyZipAppModel: ObservableObject {
 
     var canRevealOutput: Bool {
         revealTargetURL != nil
+    }
+
+    var visibleTaskQueue: [ArchiveQueuedTask] {
+        Array(taskQueue.suffix(8).reversed())
+    }
+
+    var hasFinishedQueuedTasks: Bool {
+        taskQueue.contains { $0.status.isFinished }
     }
 
     var selectedArchiveEntryCount: Int {
@@ -300,19 +313,42 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
+        let queuedTaskID = passwordRetryQueuedTaskID
+        passwordRetryQueuedTaskID = nil
         extractionPassword = password
         passwordPrompt = nil
-        startOperation()
+        startOperation(reusingQueuedTaskID: queuedTaskID)
     }
 
     func cancelExtractionPasswordPrompt() {
         clearExtractionPassword()
         progressText = "已取消"
-        taskResult = TaskResult(
+        let result = TaskResult(
             title: "已取消",
             detail: "未输入归档密码",
             outputURL: nil,
             iconName: "xmark.circle"
+        )
+        taskResult = result
+
+        if let passwordRetryQueuedTaskID {
+            finishQueuedTask(id: passwordRetryQueuedTaskID, status: .cancelled, result: result)
+            self.passwordRetryQueuedTaskID = nil
+        }
+    }
+
+    func resolveArchiveConflict(
+        _ prompt: ArchiveConflictPrompt,
+        policy: OverwritePolicy,
+        appliesToRemainingConflicts: Bool
+    ) {
+        conflictPrompt = nil
+        conflictDecisionCoordinator?.submitDecision(
+            ArchiveConflictDecision(
+                policy: policy,
+                appliesToRemainingConflicts: appliesToRemainingConflicts
+            ),
+            for: prompt.id
         )
     }
 
@@ -368,7 +404,7 @@ final class EasyZipAppModel: ObservableObject {
         )
     }
 
-    func startOperation() {
+    func startOperation(reusingQueuedTaskID: UUID? = nil) {
         guard canRun else {
             return
         }
@@ -384,9 +420,11 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
+        let taskSnapshot = currentTaskSnapshot()
+        let queuedTaskID = prepareQueuedTask(taskSnapshot, reusingQueuedTaskID: reusingQueuedTaskID)
         isRunning = true
         progressFraction = 0
-        progressText = mode == .compress ? "准备压缩" : "准备解压"
+        progressText = startingProgressText(for: mode)
         taskResult = TaskResult(
             title: "任务进行中",
             detail: "\(mode.rawValue)任务正在执行",
@@ -404,6 +442,11 @@ final class EasyZipAppModel: ObservableObject {
             ? selectedArchiveEntryPaths
             : []
         let extractionPassword = mode == .extract ? extractionPassword : nil
+        let conflictDecisionCoordinator = makeConflictDecisionCoordinatorIfNeeded(
+            mode: mode,
+            overwritePolicy: overwritePolicy
+        )
+        let conflictResolver = conflictDecisionCoordinator?.makeResolver()
         let archiveName = archiveName
         let includeHiddenFiles = includeHiddenFiles
         let preserveParentDirectory = preserveParentDirectory
@@ -439,6 +482,7 @@ final class EasyZipAppModel: ObservableObject {
                         shouldCreateContainingDirectory: shouldCreateContainingDirectory,
                         selectedEntryPaths: entryPathsToExtract,
                         password: extractionPassword,
+                        conflictResolver: conflictResolver,
                         progressHandler: { progress in
                             Task { @MainActor in
                                 self?.apply(progress)
@@ -449,15 +493,17 @@ final class EasyZipAppModel: ObservableObject {
 
                 await self?.finishOperation(result)
             } catch is CancellationError {
-                await self?.cancelOperationResult()
+                await self?.cancelOperationResult(queuedTaskID: queuedTaskID)
             } catch {
-                await self?.failOperation(error)
+                await self?.failOperation(error, queuedTaskID: queuedTaskID)
             }
         }
     }
 
     func cancelOperation() {
+        conflictPrompt = nil
         operationTask?.cancel()
+        conflictDecisionCoordinator?.cancelPendingDecision()
     }
 
     func refreshExternalToolAvailability() {
@@ -475,6 +521,43 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         NSWorkspace.shared.activateFileViewerSelecting([revealTargetURL])
+    }
+
+    func revealQueuedTaskOutput(_ task: ArchiveQueuedTask) {
+        guard let outputURL = task.outputURL else {
+            return
+        }
+
+        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+    }
+
+    func retryQueuedTask(_ task: ArchiveQueuedTask) {
+        guard !isRunning, task.status.allowsRetry else {
+            return
+        }
+
+        applyTaskSnapshot(task.snapshot.withoutPasswords())
+        startOperation()
+    }
+
+    func cancelQueuedTask(_ task: ArchiveQueuedTask) {
+        if task.status == .waiting, task.id == passwordRetryQueuedTaskID {
+            cancelExtractionPasswordPrompt()
+            return
+        }
+
+        guard task.status == .running,
+              task.id == activeQueuedTaskID else {
+            return
+        }
+
+        cancelOperation()
+    }
+
+    func clearFinishedQueuedTasks() {
+        taskQueue.removeAll { task in
+            task.status.isFinished
+        }
     }
 
     func clearRecentTasks() {
@@ -699,6 +782,134 @@ final class EasyZipAppModel: ObservableObject {
         progressText = "设置已应用"
     }
 
+    private func currentTaskSnapshot() -> ArchiveTaskSnapshot {
+        ArchiveTaskSnapshot(
+            mode: mode,
+            sourceURLs: selectedItems,
+            outputDirectory: outputDirectory,
+            selectedFormat: selectedFormat,
+            overwritePolicy: overwritePolicy,
+            archiveName: archiveName,
+            includeHiddenFiles: includeHiddenFiles,
+            preserveParentDirectory: preserveParentDirectory,
+            preserveMetadata: preserveMetadata,
+            shouldCreateContainingDirectory: shouldCreateContainingDirectory,
+            selectedEntryPaths: selectedArchiveEntryPaths,
+            encryptCompression: encryptCompression,
+            compressionPassword: mode == .compress && encryptCompression ? compressionPassword : nil,
+            extractionPassword: mode == .extract ? extractionPassword : nil
+        )
+    }
+
+    private func applyTaskSnapshot(_ snapshot: ArchiveTaskSnapshot) {
+        clearExtractionPassword()
+        mode = snapshot.mode
+        selectedItems = snapshot.sourceURLs
+        outputDirectory = snapshot.outputDirectory
+        selectedFormat = snapshot.selectedFormat
+        overwritePolicy = snapshot.overwritePolicy
+        archiveName = snapshot.archiveName
+        includeHiddenFiles = snapshot.includeHiddenFiles
+        preserveParentDirectory = snapshot.preserveParentDirectory
+        preserveMetadata = snapshot.preserveMetadata
+        shouldCreateContainingDirectory = snapshot.shouldCreateContainingDirectory
+        selectedArchiveEntryPaths = snapshot.selectedEntryPaths
+        encryptCompression = snapshot.encryptCompression
+        compressionPassword = snapshot.compressionPassword ?? ""
+        compressionPasswordConfirmation = snapshot.compressionPassword ?? ""
+        extractionPassword = snapshot.extractionPassword
+        resetProgressIfIdle()
+        refreshExternalToolAvailability()
+        refreshArchivePreview(preservingSelection: snapshot.selectedEntryPaths)
+    }
+
+    private func appendQueuedTask(_ snapshot: ArchiveTaskSnapshot) -> UUID {
+        let queuedTask = ArchiveQueuedTask(
+            snapshot: snapshot,
+            progressText: startingProgressText(for: snapshot.mode)
+        )
+        taskQueue.append(queuedTask)
+        taskQueue = Array(taskQueue.suffix(20))
+        activeQueuedTaskID = queuedTask.id
+
+        return queuedTask.id
+    }
+
+    private func prepareQueuedTask(
+        _ snapshot: ArchiveTaskSnapshot,
+        reusingQueuedTaskID: UUID?
+    ) -> UUID {
+        guard let reusingQueuedTaskID,
+              taskQueue.contains(where: { $0.id == reusingQueuedTaskID }) else {
+            return appendQueuedTask(snapshot)
+        }
+
+        updateQueuedTask(id: reusingQueuedTaskID) { task in
+            task.snapshot = snapshot
+            task.status = .running
+            task.progressFraction = 0
+            task.progressText = startingProgressText(for: snapshot.mode)
+            task.result = nil
+            task.completedAt = nil
+        }
+        activeQueuedTaskID = reusingQueuedTaskID
+
+        return reusingQueuedTaskID
+    }
+
+    private func startingProgressText(for mode: WorkspaceMode) -> String {
+        mode == .compress ? "准备压缩" : "准备解压"
+    }
+
+    private func updateQueuedTask(
+        id: UUID,
+        _ update: (inout ArchiveQueuedTask) -> Void
+    ) {
+        guard let index = taskQueue.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        update(&taskQueue[index])
+    }
+
+    private func updateActiveQueuedTaskProgress() {
+        guard let activeQueuedTaskID else {
+            return
+        }
+
+        updateQueuedTask(id: activeQueuedTaskID) { task in
+            task.progressFraction = progressFraction
+            task.progressText = progressText
+        }
+    }
+
+    private func finishQueuedTask(
+        id: UUID?,
+        status: ArchiveQueuedTaskStatus,
+        result: TaskResult
+    ) {
+        guard let id else {
+            return
+        }
+
+        updateQueuedTask(id: id) { task in
+            task.status = status
+            task.progressFraction = status == .succeeded ? 1 : task.progressFraction
+            task.progressText = result.title
+            task.result = result
+            task.completedAt = Date()
+            task.snapshot = task.snapshot.withoutPasswords()
+        }
+
+        if activeQueuedTaskID == id {
+            activeQueuedTaskID = nil
+        }
+
+        if passwordRetryQueuedTaskID == id {
+            passwordRetryQueuedTaskID = nil
+        }
+    }
+
     private func compressionPasswordIsValid() -> Bool {
         guard mode == .compress,
               let message = compressionPasswordValidationMessage else {
@@ -817,6 +1028,25 @@ final class EasyZipAppModel: ObservableObject {
         encryptCompression = false
     }
 
+    private func makeConflictDecisionCoordinatorIfNeeded(
+        mode: WorkspaceMode,
+        overwritePolicy: OverwritePolicy
+    ) -> ArchiveConflictDecisionCoordinator? {
+        guard mode == .extract, overwritePolicy == .ask else {
+            conflictDecisionCoordinator = nil
+            conflictPrompt = nil
+            return nil
+        }
+
+        let coordinator = ArchiveConflictDecisionCoordinator { [weak self] prompt in
+            self?.conflictPrompt = prompt
+        }
+        conflictDecisionCoordinator = coordinator
+        conflictPrompt = nil
+
+        return coordinator
+    }
+
     private func normalizeCompressionEncryptionForSelectedFormat() {
         guard !selectedFormat.supportsEncryptedCompression else {
             return
@@ -825,22 +1055,25 @@ final class EasyZipAppModel: ObservableObject {
         disableCompressionEncryption()
     }
 
-    private func refreshArchivePreview() {
+    private func refreshArchivePreview(preservingSelection preservedSelection: Set<String> = []) {
         previewTask?.cancel()
         archiveEntries.removeAll()
-        selectedArchiveEntryPaths.removeAll()
+        selectedArchiveEntryPaths = preservedSelection
 
         guard mode == .extract else {
+            selectedArchiveEntryPaths.removeAll()
             previewState = "归档预览"
             return
         }
 
         guard selectedItems.count == 1, let archiveURL = selectedItems.first else {
+            selectedArchiveEntryPaths.removeAll()
             previewState = selectedItems.isEmpty ? "未选择归档" : "一次只能预览一个归档"
             return
         }
 
         previewState = "正在加载归档"
+        let selectedEntryPaths = selectedArchiveEntryPaths
         previewTask = Task.detached { [weak self] in
             do {
                 let entries = try await ArchiveService.makeDefault().listEntries(in: archiveURL)
@@ -848,11 +1081,16 @@ final class EasyZipAppModel: ObservableObject {
 
                 await MainActor.run {
                     self?.archiveEntries = rows
+                    if !selectedEntryPaths.isEmpty {
+                        let selectablePaths = Set(rows.filter(\.canSelectForExtraction).map(\.path))
+                        self?.selectedArchiveEntryPaths = selectedEntryPaths.intersection(selectablePaths)
+                    }
                     self?.previewState = rows.isEmpty ? "归档为空" : "\(rows.count) 个条目"
                 }
             } catch {
                 await MainActor.run {
                     self?.archiveEntries = []
+                    self?.selectedArchiveEntryPaths.removeAll()
                     self?.previewState = "预览不可用"
                 }
             }
@@ -872,15 +1110,21 @@ final class EasyZipAppModel: ObservableObject {
             progressFraction = 0
             progressText = progress.currentEntryPath ?? "正在处理"
         }
+
+        updateActiveQueuedTaskProgress()
     }
 
     private func finishOperation(_ result: TaskResult) {
+        let queuedTaskID = activeQueuedTaskID
         isRunning = false
+        conflictPrompt = nil
+        conflictDecisionCoordinator = nil
         clearExtractionPassword()
         disableCompressionEncryption()
         progressFraction = 1
         progressText = result.title
         taskResult = result
+        finishQueuedTask(id: queuedTaskID, status: .succeeded, result: result)
         recordRecentTask(result)
         if settings.taskCompletionNotificationEnabled {
             TaskCompletionNotifier.send(result)
@@ -888,8 +1132,11 @@ final class EasyZipAppModel: ObservableObject {
         refreshArchivePreview()
     }
 
-    private func cancelOperationResult() {
+    private func cancelOperationResult(queuedTaskID: UUID? = nil) {
+        let queuedTaskID = queuedTaskID ?? activeQueuedTaskID
         isRunning = false
+        conflictPrompt = nil
+        conflictDecisionCoordinator = nil
         clearExtractionPassword()
         disableCompressionEncryption()
         progressText = "已取消"
@@ -900,14 +1147,33 @@ final class EasyZipAppModel: ObservableObject {
             iconName: "xmark.circle"
         )
         taskResult = result
+        finishQueuedTask(id: queuedTaskID, status: .cancelled, result: result)
         recordRecentTask(result)
         refreshArchivePreview()
     }
 
-    private func failOperation(_ error: Error) {
+    private func failOperation(_ error: Error, queuedTaskID: UUID? = nil) {
+        let queuedTaskID = queuedTaskID ?? activeQueuedTaskID
         isRunning = false
+        conflictPrompt = nil
+        conflictDecisionCoordinator = nil
 
         if requestExtractionPasswordIfNeeded(for: error) {
+            if let queuedTaskID {
+                passwordRetryQueuedTaskID = queuedTaskID
+                updateQueuedTask(id: queuedTaskID) { task in
+                    task.status = .waiting
+                    task.progressFraction = 0
+                    task.progressText = progressText
+                    task.result = taskResult
+                    task.completedAt = nil
+                    task.snapshot = task.snapshot.withoutPasswords()
+                }
+
+                if activeQueuedTaskID == queuedTaskID {
+                    activeQueuedTaskID = nil
+                }
+            }
             return
         }
 
@@ -922,6 +1188,7 @@ final class EasyZipAppModel: ObservableObject {
             iconName: "exclamationmark.triangle"
         )
         taskResult = result
+        finishQueuedTask(id: queuedTaskID, status: .failed, result: result)
         recordRecentTask(result)
         alert = AppAlert(title: "操作失败", message: message)
     }

@@ -44,5 +44,12 @@ struct EasyZipWorkspaceView: View {
                 cancel: model.cancelExtractionPasswordPrompt
             )
         }
+        .sheet(item: $model.conflictPrompt) { prompt in
+            ArchiveConflictPromptView(
+                prompt: prompt,
+                resolve: model.resolveArchiveConflict
+            )
+            .interactiveDismissDisabled(true)
+        }
     }
 }

@@ -16,6 +16,8 @@ struct EasyZipMenuBarPanelView: View {
             Divider()
             ScrollView {
                 VStack(spacing: 0) {
+                    taskQueueSection
+                    Divider()
                     recentTasksSection
                     Divider()
                     recentOutputsSection
@@ -24,7 +26,7 @@ struct EasyZipMenuBarPanelView: View {
             Divider()
             footer
         }
-        .frame(width: 340, height: 520)
+        .frame(width: 360, height: 600)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -98,6 +100,32 @@ struct EasyZipMenuBarPanelView: View {
             } else {
                 ForEach(model.recentTasks) { task in
                     recentTaskRow(task)
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    private var taskQueueSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                sectionTitle("任务队列")
+                Spacer()
+                if !model.visibleTaskQueue.isEmpty {
+                    iconButton(
+                        systemName: "trash",
+                        help: "清理已结束任务",
+                        action: model.clearFinishedQueuedTasks
+                    )
+                    .disabled(!model.hasFinishedQueuedTasks)
+                }
+            }
+
+            if model.visibleTaskQueue.isEmpty {
+                emptyText("暂无队列任务")
+            } else {
+                ForEach(model.visibleTaskQueue) { task in
+                    queuedTaskRow(task)
                 }
             }
         }
@@ -294,6 +322,47 @@ struct EasyZipMenuBarPanelView: View {
         .buttonStyle(.plain)
     }
 
+    private func queuedTaskRow(_ task: ArchiveQueuedTask) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: task.status.iconName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(queueStatusColor(task.status))
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(task.title)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                Text("\(task.status.title), \(task.detail)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if task.status == .running {
+                    ProgressView(value: task.progressFraction)
+                        .progressViewStyle(.linear)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            iconButton(systemName: "xmark.circle", help: "取消") {
+                model.cancelQueuedTask(task)
+            }
+            .disabled(!task.status.allowsCancel)
+
+            iconButton(systemName: "arrow.clockwise", help: "重试") {
+                model.retryQueuedTask(task)
+            }
+            .disabled(!task.status.allowsRetry || model.isRunning)
+
+            iconButton(systemName: "magnifyingglass", help: "定位输出") {
+                model.revealQueuedTaskOutput(task)
+            }
+            .disabled(task.outputURL == nil)
+        }
+    }
+
     private func outputDirectoryRow(_ directory: RecentOutputDirectory) -> some View {
         HStack(spacing: 8) {
             Button {
@@ -339,6 +408,21 @@ struct EasyZipMenuBarPanelView: View {
             .font(.caption)
             .fontWeight(.semibold)
             .foregroundStyle(.secondary)
+    }
+
+    private func queueStatusColor(_ status: ArchiveQueuedTaskStatus) -> Color {
+        switch status {
+        case .running:
+            .blue
+        case .waiting:
+            .orange
+        case .succeeded:
+            .green
+        case .failed:
+            .red
+        case .cancelled:
+            .secondary
+        }
     }
 
     private func emptyText(_ text: String) -> some View {
