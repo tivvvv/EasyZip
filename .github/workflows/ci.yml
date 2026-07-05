@@ -25,5 +25,64 @@ jobs:
       - name: Show Swift Version
         run: swift --version
 
-      - name: Run Checks
-        run: Scripts/ci_check.sh
+      - name: Check Shell Syntax
+        run: |
+          bash -n Scripts/build_app_bundle.sh
+          bash -n Scripts/check_app_bundle.sh
+          bash -n Scripts/check_dmg.sh
+          bash -n Scripts/ci_check.sh
+          bash -n Scripts/notarize_release.sh
+          bash -n Scripts/package_dmg.sh
+          bash -n Scripts/release_build.sh
+
+      - name: Run Tests
+        run: swift test
+
+      - name: Build App Product
+        run: swift build --product EasyZipApp
+
+      - name: Build App Bundle
+        run: Scripts/build_app_bundle.sh
+
+      - name: Check App Bundle
+        run: Scripts/check_app_bundle.sh "dist/易压缩.app"
+
+      - name: Check Git Whitespace
+        run: |
+          git diff --check
+          git diff --cached --check
+
+      - name: Check Chinese Punctuation
+        run: |
+          scan_files=(
+              Package.swift
+              README.md
+              docs/ARCHITECTURE.md
+              Scripts/build_app_bundle.sh
+              Scripts/check_app_bundle.sh
+              Scripts/check_dmg.sh
+              Scripts/ci_check.sh
+              Scripts/notarize_release.sh
+              Scripts/package_dmg.sh
+              Scripts/release_build.sh
+          )
+
+          while IFS= read -r -d '' file; do
+              scan_files+=("$file")
+          done < <(
+              find Sources Tests .github -type f \
+                  \( -name "*.swift" -o -name "*.md" -o -name "*.sh" -o -name "*.yml" -o -name "*.yaml" \) \
+                  -print0
+          )
+
+          if perl -Mutf8 -CS -ne '
+          BEGIN { $found = 0 }
+          if (/[\x{ff0c}\x{3002}\x{ff1b}\x{ff1a}\x{ff01}\x{ff1f}\x{ff08}\x{ff09}\x{3010}\x{3011}]/) {
+              print "$ARGV:$.:$_";
+              $found = 1;
+          }
+          END { exit($found ? 0 : 1) }
+          ' "${scan_files[@]}"; then
+              echo "Found unsupported Chinese punctuation."
+              exit 1
+          fi
