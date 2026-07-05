@@ -52,6 +52,28 @@ final class EasyZipAppModelTaskQueueTests: XCTestCase {
         XCTAssertEqual(model.taskQueue.map(\.status), [.failed, .failed])
     }
 
+    func testRetryQueuesWhenAnotherTaskIsRunning() async throws {
+        let workspaceURL = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: workspaceURL)
+        }
+        let missingSourceURL = workspaceURL.appendingPathComponent("missing.txt")
+        let model = makeModel()
+
+        model.selectedItems = [missingSourceURL]
+        model.outputDirectory = workspaceURL
+        model.startOperation()
+        try await waitForIdle(model)
+        let failedTask = try XCTUnwrap(model.taskQueue.first)
+
+        model.isRunning = true
+        model.retryQueuedTask(failedTask)
+
+        XCTAssertEqual(model.taskQueue.count, 2)
+        XCTAssertEqual(model.taskQueue.last?.status, .waiting)
+        XCTAssertEqual(model.taskQueue.last?.snapshot.sourceURLs, failedTask.snapshot.sourceURLs)
+    }
+
     func testRetryKeepsSelectedArchiveEntriesInTaskSnapshot() async throws {
         let workspaceURL = try makeTemporaryDirectory()
         defer {
@@ -188,6 +210,32 @@ final class EasyZipAppModelTaskQueueTests: XCTestCase {
         XCTAssertEqual(model.taskQueue.count, 1)
         XCTAssertEqual(model.taskQueue.first?.status, .cancelled)
         XCTAssertNil(model.passwordPrompt)
+    }
+
+    func testCancellingPasswordPromptStartsNextQueuedTask() async throws {
+        let workspaceURL = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: workspaceURL)
+        }
+        let archiveURL = try await makeEncryptedArchive(in: workspaceURL)
+        let queuedSourceURL = workspaceURL.appendingPathComponent("queued.txt")
+        try "queued".write(to: queuedSourceURL, atomically: true, encoding: .utf8)
+        let model = makeModel()
+
+        model.mode = .extract
+        model.addFileURLs([archiveURL])
+        model.outputDirectory = workspaceURL
+        model.startOperation()
+
+        try await waitForPasswordPrompt(model)
+        model.prepareExternalSelection(mode: .compress, fileURLs: [queuedSourceURL])
+        XCTAssertEqual(model.taskQueue.map(\.status), [.waiting, .waiting])
+
+        model.cancelExtractionPasswordPrompt()
+        try await waitForIdle(model)
+
+        XCTAssertEqual(model.taskQueue.map(\.status), [.cancelled, .succeeded])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: workspaceURL.appendingPathComponent("queued.zip").path))
     }
 
     func testClearsFinishedQueuedTasksOnly() async throws {

@@ -125,7 +125,7 @@ private struct TaskQueueRow: View {
             }
             .buttonStyle(.borderless)
             .help("重试")
-            .disabled(!task.status.allowsRetry || model.isRunning)
+            .disabled(!task.status.allowsRetry)
 
             Button {
                 model.revealQueuedTaskOutput(task)

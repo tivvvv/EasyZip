@@ -11,10 +11,6 @@ struct EasyZipWorkspaceView: View {
         VStack(spacing: 0) {
             WorkspaceToolbar(model: model)
 
-            if let pendingSelection = model.pendingExternalSelection {
-                PendingExternalSelectionBanner(model: model, selection: pendingSelection)
-            }
-
             Divider()
 
             HStack(spacing: 0) {

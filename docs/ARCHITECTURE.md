@@ -130,7 +130,7 @@ EasyZipCore
 - AppDelegate 管理菜单栏图标和轻量状态面板, 按需创建任务工作台窗口.
 - App 侧按 `App`, `MenuBar`, `Diagnostics`, `Onboarding`, `Workspace`, `ViewModels`, `Tasks`, `Persistence` 和 `Support` 拆分.
 - 菜单栏状态面板和任务工作台共用同一个 `EasyZipAppModel`, 因此进度, 结果和最近记录保持同步.
-- 工作台和菜单栏状态面板共用当前会话任务队列, 队列项保存任务快照, 状态, 进度和结果.
+- 工作台和菜单栏状态面板共用当前会话任务队列, 队列项保存任务快照, 状态, 进度和结果, 等待任务会按入队顺序自动执行.
 - `EasyZipOnboardingState` 使用 `UserDefaults` 记录首次启动引导完成状态.
 - 首次启动引导由 AppDelegate 按需创建独立窗口, 完成或关闭后不再自动展示.
 - 菜单栏状态面板可重新打开首次启动引导.
@@ -138,7 +138,7 @@ EasyZipCore
 - Finder Sync 启用状态不做不稳定推断, 诊断页提供扩展设置入口让用户确认.
 - 诊断页可从菜单栏状态面板和设置页打开.
 - `ArchiveTaskRunner` 负责 UI 层任务编排, `EasyZipAppModel` 只保留状态流转和用户操作入口.
-- `ArchiveQueuedTask` 负责描述当前会话任务队列项, 完成后会清理快照中的密码字段.
+- `ArchiveQueuedTask` 负责描述当前会话任务队列项, 完成后会清理快照中的密码字段, 密码等待任务会暂停调度.
 - `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存默认输出目录, 默认压缩格式和默认冲突策略.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存通知开关和外层目录开关.
@@ -154,8 +154,8 @@ EasyZipCore
 - Finder handoff 使用 0700 目录权限和 0600 文件权限, 并限制单次文件数量和 payload 大小.
 - App 启动时会清理过期 Finder handoff 文件.
 - `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.
-- Finder 和 Services 后台唤起会走统一外部选择策略, 空闲时同模式合并, 不同模式替换.
-- 任务运行中再次唤起会生成 `PendingExternalSelection`, 菜单栏面板和工作台同步展示并允许稍后应用.
+- 工作台添加, Finder 和 Services 后台唤起会走统一外部选择策略, 空闲时同模式合并, 不同模式替换.
+- 任务运行中再次选择文件会生成等待队列项, 当前任务完成或密码等待取消后由 `EasyZipAppModel` 调度下一个任务.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
 - 加密归档解压支持通过 `ExtractionOptions.password` 传入密码, UI 侧会在缺少密码或密码错误时提示输入.
 - ZIP 加密压缩支持通过 UI 输入密码和确认密码, Core 会拒绝非 ZIP 格式的加密压缩请求.

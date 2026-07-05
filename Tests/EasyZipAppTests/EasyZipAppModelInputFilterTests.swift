@@ -27,7 +27,7 @@ final class EasyZipAppModelInputFilterTests: XCTestCase {
         XCTAssertEqual(model.alert?.message, "请选择支持的归档文件后重试")
     }
 
-    func testExternalSelectionReportsRejectedFilesBeforeDeferringRunningTask() {
+    func testExternalSelectionReportsRejectedFilesBeforeQueueingRunningTask() {
         let model = makeModel()
         let archiveURL = URL(fileURLWithPath: "/tmp/archive.zip")
         let unsupportedURL = URL(fileURLWithPath: "/tmp/document.txt")
@@ -35,12 +35,14 @@ final class EasyZipAppModelInputFilterTests: XCTestCase {
         model.isRunning = true
         model.prepareExternalSelection(mode: .extract, fileURLs: [archiveURL, unsupportedURL])
 
-        XCTAssertEqual(model.pendingExternalSelection?.mode, .extract)
-        XCTAssertEqual(model.pendingExternalSelection?.fileURLs.map(\.path), [archiveURL.standardizedFileURL.path])
-        XCTAssertEqual(model.alert?.title, "已暂存新选择")
+        XCTAssertEqual(model.taskQueue.count, 1)
+        XCTAssertEqual(model.taskQueue.first?.status, .waiting)
+        XCTAssertEqual(model.taskQueue.first?.snapshot.mode, .extract)
+        XCTAssertEqual(model.taskQueue.first?.snapshot.sourceURLs.map(\.path), [archiveURL.standardizedFileURL.path])
+        XCTAssertEqual(model.alert?.title, "已加入任务队列")
         XCTAssertEqual(
             model.alert?.message,
-            "当前任务完成后可应用 1 项解压文件, 已忽略 1 个不支持解压的文件"
+            "当前任务完成后自动执行 1 项解压文件, 已忽略 1 个不支持解压的文件"
         )
     }
 

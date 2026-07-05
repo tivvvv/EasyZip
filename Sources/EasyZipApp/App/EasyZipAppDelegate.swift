@@ -335,7 +335,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 }
             }
 
-        workspaceModel.cancelOperation()
+        workspaceModel.cancelOperation(shouldContinueQueue: false)
     }
 
     private func completeTerminationRequest(shouldTerminate: Bool) {
@@ -346,12 +346,6 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func chooseItems(mode: WorkspaceMode) {
-        guard !workspaceModel.isRunning else {
-            workspaceModel.noteSelectionBlocked(mode: mode)
-            showWorkspace()
-            return
-        }
-
         NSApplication.shared.activate(ignoringOtherApps: true)
         let panel = FileSelectionPanelFactory.makeItemSelectionPanel(mode: mode)
 
