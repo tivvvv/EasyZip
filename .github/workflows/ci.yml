@@ -36,37 +36,37 @@ jobs:
           bash -n Scripts/release_build.sh
 
       - name: Run Archive Engine Registry Tests
-        run: swift test --filter ArchiveEngineRegistryTests
+        run: swift test --filter EasyZipCoreTests.ArchiveEngineRegistryTests
 
       - name: Run Archive Fixture Tests
-        run: swift test --filter ArchiveFixtureTests
+        run: swift test --filter EasyZipCoreTests.ArchiveFixtureTests
 
       - name: Run Archive Format Detector Tests
-        run: swift test --filter ArchiveFormatDetectorTests
+        run: swift test --filter EasyZipCoreTests.ArchiveFormatDetectorTests
 
       - name: Run Archive Path Validator Tests
-        run: swift test --filter ArchivePathValidatorTests
+        run: swift test --filter EasyZipCoreTests.ArchivePathValidatorTests
 
       - name: Run LibArchive Engine Tests
-        run: swift test --filter LibArchiveEngineTests
+        run: swift test --filter EasyZipCoreTests.LibArchiveEngineTests
 
       - name: Run LibArchive Entry Selector Tests
-        run: swift test --filter LibArchiveExtractionEntrySelectorTests
+        run: swift test --filter EasyZipCoreTests.LibArchiveExtractionEntrySelectorTests
 
       - name: Run LibArchive Read Error Mapper Tests
-        run: swift test --filter LibArchiveReadErrorMapperTests
+        run: swift test --filter EasyZipCoreTests.LibArchiveReadErrorMapperTests
 
       - name: Run RAR Command Resolver Tests
-        run: swift test --filter RARCommandResolverTests
+        run: swift test --filter EasyZipCoreTests.RARCommandResolverTests
 
       - name: Run Zstd Command Resolver Tests
-        run: swift test --filter ZstdCommandResolverTests
+        run: swift test --filter EasyZipCoreTests.ZstdCommandResolverTests
 
       - name: Run App Tests
-        run: swift test --filter EasyZipAppTests
+        run: swift test --filter EasyZipAppTests.
 
       - name: Run Shared Tests
-        run: swift test --filter EasyZipSharedTests
+        run: swift test --filter EasyZipSharedTests.
 
       - name: Build App Product
         run: swift build --product EasyZipApp
