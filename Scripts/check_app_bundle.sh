@@ -9,6 +9,10 @@ APP_GROUP_IDENTIFIER="${APP_GROUP_IDENTIFIER:-group.com.tiv.easyzip}"
 MARKETING_VERSION="${MARKETING_VERSION:-0.1.0}"
 BUILD_VERSION="${BUILD_VERSION:-1}"
 OUTPUT_DIR="${OUTPUT_DIR:-dist}"
+EXPECTED_CODE_SIGN_IDENTITY="${EXPECTED_CODE_SIGN_IDENTITY:-}"
+REQUIRE_DEVELOPER_ID="${REQUIRE_DEVELOPER_ID:-0}"
+REQUIRE_HARDENED_RUNTIME="${REQUIRE_HARDENED_RUNTIME:-0}"
+REQUIRE_STAPLED_TICKET="${REQUIRE_STAPLED_TICKET:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -95,6 +99,107 @@ extract_entitlements() {
     plutil -lint "$output" > /dev/null
 }
 
+codesign_details() {
+    local target="$1"
+
+    codesign -dv --verbose=4 "$target" 2>&1
+}
+
+read_codesign_value() {
+    local target="$1"
+    local key="$2"
+
+    codesign_details "$target" | awk -F= -v key="$key" '$1 == key { print substr($0, length(key) + 2); exit }'
+}
+
+read_codesign_authorities() {
+    local target="$1"
+
+    codesign_details "$target" | awk -F= '$1 == "Authority" { print substr($0, length("Authority") + 2) }'
+}
+
+read_codesign_authority_chain() {
+    local target="$1"
+
+    read_codesign_authorities "$target" | paste -sd '|' -
+}
+
+read_codesign_identity_marker() {
+    local target="$1"
+    local authority_chain
+    local signature
+
+    authority_chain="$(read_codesign_authority_chain "$target")"
+    if [[ -n "$authority_chain" ]]; then
+        echo "$authority_chain"
+        return
+    fi
+
+    signature="$(read_codesign_value "$target" "Signature")"
+    echo "$signature"
+}
+
+assert_expected_code_sign_identity() {
+    local target="$1"
+
+    if [[ -z "$EXPECTED_CODE_SIGN_IDENTITY" || "$EXPECTED_CODE_SIGN_IDENTITY" == "-" ]]; then
+        return
+    fi
+
+    if ! read_codesign_authorities "$target" | grep -Fx "$EXPECTED_CODE_SIGN_IDENTITY" > /dev/null; then
+        fail "签名身份不匹配: $target"
+    fi
+}
+
+assert_developer_id_signature() {
+    local target="$1"
+
+    if ! read_codesign_authorities "$target" | grep -E '^Developer ID Application:' > /dev/null; then
+        fail "不是 Developer ID Application 签名: $target"
+    fi
+}
+
+assert_hardened_runtime() {
+    local target="$1"
+    local runtime_version
+
+    runtime_version="$(read_codesign_value "$target" "Runtime Version")"
+    if [[ -z "$runtime_version" ]]; then
+        fail "未启用 Hardened Runtime: $target"
+    fi
+}
+
+assert_stapled_ticket() {
+    local target="$1"
+
+    xcrun stapler validate "$target" > /dev/null 2>&1 \
+        || fail "未通过公证票据校验: $target"
+}
+
+assert_signature_consistency() {
+    local app_identity
+    local extension_identity
+    local app_team
+    local extension_team
+
+    app_identity="$(read_codesign_identity_marker "$APP_PATH")"
+    extension_identity="$(read_codesign_identity_marker "$EXTENSION_PATH")"
+    app_team="$(read_codesign_value "$APP_PATH" "TeamIdentifier")"
+    extension_team="$(read_codesign_value "$EXTENSION_PATH" "TeamIdentifier")"
+
+    if [[ -z "$app_identity" || -z "$extension_identity" ]]; then
+        fail "无法读取签名身份"
+    fi
+
+    if [[ "$app_identity" != "$extension_identity" ]]; then
+        fail "App 和 Finder Sync extension 签名身份不一致"
+    fi
+
+    if [[ "$app_team" != "$extension_team" ]]; then
+        fail "App 和 Finder Sync extension TeamIdentifier 不一致"
+    fi
+}
+
 APP_CONTENTS_PATH="$APP_PATH/Contents"
 APP_INFO_PLIST="$APP_CONTENTS_PATH/Info.plist"
 APP_EXECUTABLE_PATH="$APP_CONTENTS_PATH/MacOS/EasyZipApp"
@@ -154,6 +259,24 @@ assert_plist_value ":NSExtension:NSExtensionPrincipalClass" "EasyZipFinderSyncEx
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 extract_entitlements "$APP_PATH" "$APP_ENTITLEMENTS"
 extract_entitlements "$EXTENSION_PATH" "$EXTENSION_ENTITLEMENTS"
+assert_signature_consistency
+assert_expected_code_sign_identity "$APP_PATH"
+assert_expected_code_sign_identity "$EXTENSION_PATH"
+
+if [[ "$REQUIRE_DEVELOPER_ID" == "1" ]]; then
+    assert_developer_id_signature "$APP_PATH"
+    assert_developer_id_signature "$EXTENSION_PATH"
+fi
+
+if [[ "$REQUIRE_HARDENED_RUNTIME" == "1" ]]; then
+    assert_hardened_runtime "$APP_PATH"
+    assert_hardened_runtime "$EXTENSION_PATH"
+fi
+
+if [[ "$REQUIRE_STAPLED_TICKET" == "1" ]]; then
+    assert_stapled_ticket "$APP_PATH"
+fi
+
 assert_entitlement_bool_true ":com.apple.security.app-sandbox" "$APP_ENTITLEMENTS"
 assert_entitlement_bool_true ":com.apple.security.app-sandbox" "$EXTENSION_ENTITLEMENTS"
 assert_plist_value ":com.apple.security.application-groups:0" "$APP_GROUP_IDENTIFIER" "$APP_ENTITLEMENTS"

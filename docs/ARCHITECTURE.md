@@ -20,10 +20,10 @@
 - Zstandard 压缩: 当前 macOS `libarchive` 通过外部 `zstd` 程序提供 `.tar.zst` 写入能力.
 - App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`, 默认 ad-hoc 签名并注入 sandbox entitlements.
 - App Group: App 和 Finder Sync extension 默认使用 `group.com.tiv.easyzip`, 可通过 `APP_GROUP_IDENTIFIER` 覆盖.
-- 产物检查: 通过 `Scripts/check_app_bundle.sh` 校验 `.app` 结构, plist 字段, Finder Sync extension, App Group entitlements 和签名.
-- DMG 交付: 通过 `Scripts/package_dmg.sh` 生成安装包, 通过 `Scripts/check_dmg.sh` 校验挂载内容.
-- 发布交付: 通过 `Scripts/release_build.sh` 生成 zip, dmg, SHA256 校验文件和构建摘要.
-- 公证交付: 通过 `Scripts/notarize_release.sh` 提交 dmg 公证, 需要 Developer ID 签名和 Apple 凭据.
+- 产物检查: 通过 `Scripts/check_app_bundle.sh` 校验 `.app` 结构, plist 字段, Finder Sync extension, App Group entitlements, 签名一致性和可选发布签名要求.
+- DMG 交付: 通过 `Scripts/package_dmg.sh` 生成安装包, 通过 `Scripts/check_dmg.sh` 校验挂载内容, 支持可选 DMG 签名和签名校验.
+- 发布交付: 通过 `Scripts/release_build.sh` 生成 zip, dmg, SHA256 校验文件和构建摘要, 并解包复检 zip.
+- 公证交付: 通过 `Scripts/notarize_release.sh` 提交 app zip 或 dmg 公证, 正式发布可由 `Scripts/release_build.sh` 自动 staple app 和 dmg.
 - 依赖交付: 当前使用 macOS 系统 `libarchive`, 后续如需跨系统版本一致性,
   再评估随 app bundle 携带动态库.
 - 并发模型: Swift Concurrency, 每个归档任务用独立 `Task`, 支持进度回调和取消.
@@ -166,10 +166,11 @@ EasyZipCore
 - Core 测试已引入真实归档 fixture, 覆盖 `.zip`, `.7z`, `.tar.gz`, 加密 zip, 损坏 zip 和路径穿越 zip.
 - GitHub Actions 已接入 push 和 pull request 校验, 会执行测试, 构建, 打包, 签名校验和规范扫描.
 - 发布构建会复用 app bundle 打包脚本和产物完整性检查脚本.
-- 发布构建会生成 zip 和 dmg, 并在摘要中记录版本号, UTC 构建时间, commit hash 和 SHA256.
-- DMG 打包会包含 `易压缩.app` 和 Applications 入口, 生成后会挂载校验.
-- Developer ID 签名可通过 `CODE_SIGN_IDENTITY` 注入, 公证步骤由独立脚本手动触发.
-- 产物完整性检查会覆盖 Finder Sync extension, URL scheme, Services, `LSUIElement`, 版本号, App Group entitlements 和签名状态.
+- 发布构建会生成 zip 和 dmg, 解包复检 zip, 并在摘要中记录版本号, UTC 构建时间, commit hash, 产物大小和 SHA256.
+- DMG 打包会包含 `易压缩.app` 和 Applications 入口, 生成后会挂载校验, Developer ID 发布时可用同一身份签名并校验 DMG.
+- Developer ID 签名可通过 `CODE_SIGN_IDENTITY` 注入, `RELEASE_REQUIRE_DEVELOPER_ID=1` 会强制检查 Developer ID Application 签名.
+- `RELEASE_NOTARIZE=1` 会先提交临时 app zip 公证并 staple app, 再生成最终 zip 和 dmg, 最后提交 dmg 公证并 staple dmg.
+- 产物完整性检查会覆盖 Finder Sync extension, URL scheme, Services, `LSUIElement`, 版本号, App Group entitlements, 签名一致性, Hardened Runtime 和可选公证票据.
 - 当前不支持分卷归档.
 
 ## 设计原则

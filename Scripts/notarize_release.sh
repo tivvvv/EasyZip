@@ -10,22 +10,52 @@ NOTARY_KEYCHAIN_PROFILE="${NOTARY_KEYCHAIN_PROFILE:-}"
 APPLE_ID="${APPLE_ID:-}"
 APPLE_TEAM_ID="${APPLE_TEAM_ID:-}"
 APPLE_APP_SPECIFIC_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-}"
+STAPLE_PATH="${STAPLE_PATH:-}"
+STAPLE_PATH_INPUT="$STAPLE_PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DMG_PATH="${1:-${DMG_PATH:-$REPO_ROOT/$RELEASE_DIR/$ARCHIVE_BASENAME.dmg}}"
+SUBMISSION_PATH="${1:-${SUBMISSION_PATH:-${DMG_PATH:-$REPO_ROOT/$RELEASE_DIR/$ARCHIVE_BASENAME.dmg}}}"
+STAPLE_PATH_INPUT="${2:-$STAPLE_PATH_INPUT}"
 
 fail() {
     echo "公证失败: $*" >&2
     exit 1
 }
 
-if [[ "$DMG_PATH" != /* ]]; then
-    DMG_PATH="$REPO_ROOT/$DMG_PATH"
+normalize_path() {
+    local path="$1"
+
+    if [[ "$path" == /* ]]; then
+        echo "$path"
+    else
+        echo "$REPO_ROOT/$path"
+    fi
+}
+
+SUBMISSION_PATH="$(normalize_path "$SUBMISSION_PATH")"
+
+if [[ -z "$STAPLE_PATH_INPUT" ]]; then
+    case "$SUBMISSION_PATH" in
+        *.zip)
+            STAPLE_PATH="-"
+            ;;
+        *)
+            STAPLE_PATH="$SUBMISSION_PATH"
+            ;;
+    esac
+elif [[ "$STAPLE_PATH_INPUT" == "-" ]]; then
+    STAPLE_PATH="-"
+else
+    STAPLE_PATH="$(normalize_path "$STAPLE_PATH_INPUT")"
 fi
 
-if [[ ! -f "$DMG_PATH" ]]; then
-    fail "文件不存在: $DMG_PATH"
+if [[ ! -e "$SUBMISSION_PATH" ]]; then
+    fail "文件不存在: $SUBMISSION_PATH"
+fi
+
+if [[ "$STAPLE_PATH" != "-" && ! -e "$STAPLE_PATH" ]]; then
+    fail "staple 目标不存在: $STAPLE_PATH"
 fi
 
 if ! xcrun notarytool --help > /dev/null 2>&1; then
@@ -33,7 +63,7 @@ if ! xcrun notarytool --help > /dev/null 2>&1; then
 fi
 
 if [[ -n "$NOTARY_KEYCHAIN_PROFILE" ]]; then
-    xcrun notarytool submit "$DMG_PATH" \
+    xcrun notarytool submit "$SUBMISSION_PATH" \
         --keychain-profile "$NOTARY_KEYCHAIN_PROFILE" \
         --wait
 else
@@ -41,14 +71,18 @@ else
         fail "需要设置 NOTARY_KEYCHAIN_PROFILE 或 APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD"
     fi
 
-    xcrun notarytool submit "$DMG_PATH" \
+    xcrun notarytool submit "$SUBMISSION_PATH" \
         --apple-id "$APPLE_ID" \
         --team-id "$APPLE_TEAM_ID" \
         --password "$APPLE_APP_SPECIFIC_PASSWORD" \
         --wait
 fi
 
-xcrun stapler staple "$DMG_PATH"
-xcrun stapler validate "$DMG_PATH"
+if [[ "$STAPLE_PATH" == "-" ]]; then
+    echo "跳过 staple: $SUBMISSION_PATH"
+else
+    xcrun stapler staple "$STAPLE_PATH"
+    xcrun stapler validate "$STAPLE_PATH"
+fi
 
-echo "公证完成: $DMG_PATH"
+echo "公证完成: $SUBMISSION_PATH"
