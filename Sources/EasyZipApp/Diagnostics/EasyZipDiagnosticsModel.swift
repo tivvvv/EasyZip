@@ -1,10 +1,12 @@
 import EasyZipCore
+import EasyZipShared
 import Foundation
 import UserNotifications
 
 enum EasyZipDiagnosticID: String, CaseIterable, Sendable {
     case appLocation
     case finderExtension
+    case appGroup
     case notificationPermission
     case rarCommand
     case zstdCommand
@@ -84,10 +86,13 @@ final class EasyZipDiagnosticsModel: ObservableObject {
     private let rarAvailabilityProvider: () -> ExternalToolAvailability
     private let zstdAvailabilityProvider: () -> ExternalToolAvailability
     private let codeSignatureStatusProvider: (URL) async -> EasyZipDiagnosticStatus
+    private let appGroupIdentifier: String
+    private let appGroupStatusProvider: (String) -> EasyZipDiagnosticStatus
 
     init(
         settings: EasyZipAppSettings = .shared,
         bundleURL: URL = Bundle.main.bundleURL,
+        appGroupIdentifier: String = FinderActionHandoffStore.configuredAppGroupIdentifier(),
         notificationAuthorizationStatusProvider: @escaping () async -> UNAuthorizationStatus =
             EasyZipDiagnosticsModel.currentNotificationAuthorizationStatus,
         rarAvailabilityProvider: @escaping () -> ExternalToolAvailability = {
@@ -97,14 +102,18 @@ final class EasyZipDiagnosticsModel: ObservableObject {
             ZstdCommandResolver().availability()
         },
         codeSignatureStatusProvider: @escaping (URL) async -> EasyZipDiagnosticStatus =
-            EasyZipDiagnosticsModel.currentCodeSignatureStatus
+            EasyZipDiagnosticsModel.currentCodeSignatureStatus,
+        appGroupStatusProvider: @escaping (String) -> EasyZipDiagnosticStatus =
+            EasyZipDiagnosticsModel.currentAppGroupStatus
     ) {
         self.settings = settings
         self.bundleURL = bundleURL
+        self.appGroupIdentifier = appGroupIdentifier
         self.notificationAuthorizationStatusProvider = notificationAuthorizationStatusProvider
         self.rarAvailabilityProvider = rarAvailabilityProvider
         self.zstdAvailabilityProvider = zstdAvailabilityProvider
         self.codeSignatureStatusProvider = codeSignatureStatusProvider
+        self.appGroupStatusProvider = appGroupStatusProvider
     }
 
     func refresh() async {
@@ -114,10 +123,12 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         let codeSignatureStatus = await codeSignatureStatusProvider(bundleURL)
         let rarAvailability = rarAvailabilityProvider()
         let zstdAvailability = zstdAvailabilityProvider()
+        let appGroupStatus = appGroupStatusProvider(appGroupIdentifier)
 
         items = [
             appLocationItem(),
             finderExtensionItem(),
+            appGroupItem(for: appGroupStatus),
             notificationPermissionItem(for: notificationStatus),
             rarCommandItem(for: rarAvailability),
             zstdCommandItem(for: zstdAvailability),
@@ -162,6 +173,32 @@ final class EasyZipDiagnosticsModel: ObservableObject {
             actionTitle: "扩展设置",
             action: .openFinderExtensionSettings
         )
+    }
+
+    private func appGroupItem(for status: EasyZipDiagnosticStatus) -> EasyZipDiagnosticItem {
+        switch status {
+        case .normal:
+            return EasyZipDiagnosticItem(
+                id: .appGroup,
+                title: "App Group",
+                detail: "共享容器可用: \(appGroupIdentifier).",
+                status: .normal
+            )
+        case .needsAction:
+            return EasyZipDiagnosticItem(
+                id: .appGroup,
+                title: "App Group",
+                detail: "共享容器不可用, Finder handoff 将使用开发环境回退目录.",
+                status: .needsAction
+            )
+        case .unsupported:
+            return EasyZipDiagnosticItem(
+                id: .appGroup,
+                title: "App Group",
+                detail: "当前运行方式不支持共享容器自动检测.",
+                status: .unsupported
+            )
+        }
     }
 
     private func notificationPermissionItem(
@@ -308,6 +345,14 @@ final class EasyZipDiagnosticsModel: ObservableObject {
                 continuation.resume(returning: settings.authorizationStatus)
             }
         }
+    }
+
+    nonisolated private static func currentAppGroupStatus(
+        groupIdentifier: String
+    ) -> EasyZipDiagnosticStatus {
+        FinderActionHandoffStore.appGroupDirectoryURL(groupIdentifier: groupIdentifier) == nil
+            ? .needsAction
+            : .normal
     }
 
     private static func currentCodeSignatureStatus(

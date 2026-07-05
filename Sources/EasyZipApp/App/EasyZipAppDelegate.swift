@@ -45,6 +45,10 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        FinderActionHandoffStore.stopAccessingSecurityScopedResources()
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard workspaceModel.isRunning else {
             return .terminateNow

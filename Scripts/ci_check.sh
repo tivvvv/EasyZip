@@ -43,8 +43,8 @@ scan_files=(
 while IFS= read -r -d '' file; do
     scan_files+=("$file")
 done < <(
-    find Sources Tests .github -type f \
-        \( -name "*.swift" -o -name "*.md" -o -name "*.sh" -o -name "*.yml" -o -name "*.yaml" \) \
+    find Sources Tests BuildSupport .github -type f \
+        \( -name "*.swift" -o -name "*.md" -o -name "*.sh" -o -name "*.yml" -o -name "*.yaml" -o -name "*.plist" -o -name "*.entitlements" \) \
         -print0
 )
 

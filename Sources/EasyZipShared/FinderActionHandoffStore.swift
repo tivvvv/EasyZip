@@ -11,6 +11,8 @@ public struct FinderActionHandoffStore {
     }
 
     public static let handoffQueryItemName = "handoff"
+    public static let appGroupIdentifierInfoKey = "EZAppGroupIdentifier"
+    public static let defaultAppGroupIdentifier = "group.com.tiv.easyzip"
     public static let defaultMaxAge: TimeInterval = 10 * 60
     public static let defaultMaxFileCount = 10_000
     public static let defaultMaxPayloadSize = 4 * 1024 * 1024
@@ -29,7 +31,7 @@ public struct FinderActionHandoffStore {
     private let now: () -> Date
 
     public init(
-        directoryURL: URL = Self.defaultDirectoryURL,
+        directoryURL: URL = Self.defaultDirectoryURL(),
         fileManager: FileManager = .default,
         maxAge: TimeInterval = Self.defaultMaxAge,
         maxFileCount: Int = Self.defaultMaxFileCount,
@@ -44,13 +46,41 @@ public struct FinderActionHandoffStore {
         self.now = now
     }
 
-    public static var defaultDirectoryURL: URL {
-        FileManager.default.temporaryDirectory
+    public static func defaultDirectoryURL(
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) -> URL {
+        appGroupDirectoryURL(
+            groupIdentifier: configuredAppGroupIdentifier(bundle: bundle),
+            fileManager: fileManager
+        ) ?? directoryURL(appGroupContainerURL: nil, fileManager: fileManager)
+    }
+
+    public static func configuredAppGroupIdentifier(bundle: Bundle = .main) -> String {
+        if let value = bundle.object(forInfoDictionaryKey: appGroupIdentifierInfoKey) as? String {
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !trimmedValue.isEmpty {
+                return trimmedValue
+            }
+        }
+
+        return defaultAppGroupIdentifier
+    }
+
+    public static func directoryURL(
+        appGroupContainerURL: URL?,
+        fileManager: FileManager = .default
+    ) -> URL {
+        (appGroupContainerURL ?? fileManager.temporaryDirectory)
             .appendingPathComponent(directoryName, isDirectory: true)
     }
 
-    public static func appGroupDirectoryURL(groupIdentifier: String) -> URL? {
-        FileManager.default
+    public static func appGroupDirectoryURL(
+        groupIdentifier: String,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        fileManager
             .containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier)?
             .appendingPathComponent(directoryName, isDirectory: true)
     }
@@ -62,7 +92,8 @@ public struct FinderActionHandoffStore {
         let payload = Payload(
             version: Self.payloadVersion,
             createdAt: now(),
-            fileURLStrings: uniqueFileURLs.map(\.absoluteString)
+            fileURLStrings: uniqueFileURLs.map(\.absoluteString),
+            securityScopedBookmarks: securityScopedBookmarks(for: uniqueFileURLs)
         )
         let handoffId = UUID().uuidString
         let fileURL = try handoffFileURL(for: handoffId)
@@ -131,9 +162,7 @@ public struct FinderActionHandoffStore {
             throw StoreError.expiredHandoff
         }
 
-        let fileURLs = payload.fileURLStrings
-            .compactMap(URL.init(string:))
-            .filter(\.isFileURL)
+        let fileURLs = fileURLs(from: payload)
 
         guard !fileURLs.isEmpty else {
             throw StoreError.unreadablePayload
@@ -164,6 +193,59 @@ public struct FinderActionHandoffStore {
             if modifiedAt < expirationDate {
                 try? fileManager.removeItem(at: fileURL)
             }
+        }
+    }
+
+    public static func stopAccessingSecurityScopedResources() {
+        securityScopedResourceAccessStore.stopAccessingAll()
+    }
+
+    private static let securityScopedResourceAccessStore = SecurityScopedResourceAccessStore()
+
+    private func securityScopedBookmarks(for urls: [URL]) -> [Data]? {
+        let bookmarks = try? urls.map { url in
+            try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        }
+
+        return bookmarks?.isEmpty == false ? bookmarks : nil
+    }
+
+    private func fileURLs(from payload: Payload) -> [URL] {
+        if let bookmarkURLs = fileURLsFromSecurityScopedBookmarks(payload.securityScopedBookmarks),
+           !bookmarkURLs.isEmpty {
+            return bookmarkURLs
+        }
+
+        return payload.fileURLStrings
+            .compactMap(URL.init(string:))
+            .filter(\.isFileURL)
+    }
+
+    private func fileURLsFromSecurityScopedBookmarks(_ bookmarks: [Data]?) -> [URL]? {
+        guard let bookmarks, !bookmarks.isEmpty else {
+            return nil
+        }
+
+        return bookmarks.compactMap { bookmark in
+            var isStale = false
+            guard let url = try? URL(
+                resolvingBookmarkData: bookmark,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ), !isStale else {
+                return nil
+            }
+
+            if url.startAccessingSecurityScopedResource() {
+                Self.securityScopedResourceAccessStore.retain(url)
+            }
+
+            return url
         }
     }
 
@@ -219,4 +301,27 @@ private struct Payload: Codable {
     let version: Int
     let createdAt: Date
     let fileURLStrings: [String]
+    let securityScopedBookmarks: [Data]?
+}
+
+private final class SecurityScopedResourceAccessStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls: [URL] = []
+
+    func retain(_ url: URL) {
+        lock.lock()
+        urls.append(url)
+        lock.unlock()
+    }
+
+    func stopAccessingAll() {
+        lock.lock()
+        let retainedURLs = urls
+        urls.removeAll()
+        lock.unlock()
+
+        for url in retainedURLs {
+            url.stopAccessingSecurityScopedResource()
+        }
+    }
 }

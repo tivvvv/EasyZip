@@ -25,6 +25,7 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(model.items.count, EasyZipDiagnosticID.allCases.count)
         XCTAssertEqual(model.item(with: .appLocation)?.status, .normal)
         XCTAssertEqual(model.item(with: .finderExtension)?.status, .unsupported)
+        XCTAssertEqual(model.item(with: .appGroup)?.status, .normal)
         XCTAssertEqual(model.item(with: .notificationPermission)?.status, .normal)
         XCTAssertEqual(model.item(with: .rarCommand)?.status, .normal)
         XCTAssertEqual(model.item(with: .zstdCommand)?.status, .normal)
@@ -42,13 +43,16 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
             notificationStatus: .denied,
             rarAvailability: ExternalToolAvailability(name: "rar", executableURL: nil),
             zstdAvailability: ExternalToolAvailability(name: "zstd", executableURL: nil),
-            codeSignatureStatus: .needsAction
+            codeSignatureStatus: .needsAction,
+            appGroupStatus: .needsAction
         )
 
         await model.refresh()
 
         XCTAssertEqual(model.item(with: .appLocation)?.status, .needsAction)
         XCTAssertEqual(model.item(with: .appLocation)?.action, .openApplications)
+        XCTAssertEqual(model.item(with: .appGroup)?.status, .needsAction)
+        XCTAssertNil(model.item(with: .appGroup)?.action)
         XCTAssertEqual(model.item(with: .notificationPermission)?.status, .needsAction)
         XCTAssertEqual(model.item(with: .notificationPermission)?.action, .openNotificationSettings)
         XCTAssertEqual(model.item(with: .rarCommand)?.status, .needsAction)
@@ -81,15 +85,18 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
             name: "zstd",
             executableURL: URL(fileURLWithPath: "/usr/local/bin/zstd")
         ),
-        codeSignatureStatus: EasyZipDiagnosticStatus = .normal
+        codeSignatureStatus: EasyZipDiagnosticStatus = .normal,
+        appGroupStatus: EasyZipDiagnosticStatus = .normal
     ) -> EasyZipDiagnosticsModel {
         EasyZipDiagnosticsModel(
             settings: settings ?? makeSettings(),
             bundleURL: bundleURL,
+            appGroupIdentifier: "group.com.tiv.easyzip",
             notificationAuthorizationStatusProvider: { notificationStatus },
             rarAvailabilityProvider: { rarAvailability },
             zstdAvailabilityProvider: { zstdAvailability },
-            codeSignatureStatusProvider: { _ in codeSignatureStatus }
+            codeSignatureStatusProvider: { _ in codeSignatureStatus },
+            appGroupStatusProvider: { _ in appGroupStatus }
         )
     }
 

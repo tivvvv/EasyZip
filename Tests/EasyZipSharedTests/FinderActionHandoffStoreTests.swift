@@ -47,6 +47,77 @@ final class FinderActionHandoffStoreTests: XCTestCase {
         )
     }
 
+    func testWritesSecurityScopedBookmarkForExistingFiles() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+        let sourceURL = workspaceURL.appendingPathComponent("example.txt")
+        try "example".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let store = FinderActionHandoffStore(directoryURL: workspaceURL)
+        let handoffId = try store.write(fileURLs: [sourceURL])
+        let handoffURL = workspaceURL
+            .appendingPathComponent(handoffId)
+            .appendingPathExtension("json")
+        let data = try Data(contentsOf: handoffURL)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let bookmarks = try XCTUnwrap(payload["securityScopedBookmarks"] as? [String])
+
+        XCTAssertEqual(bookmarks.count, 1)
+        XCTAssertFalse(bookmarks[0].isEmpty)
+    }
+
+    func testBuildsDirectoryURLFromAppGroupContainer() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+
+        let directoryURL = FinderActionHandoffStore.directoryURL(
+            appGroupContainerURL: workspaceURL,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(
+            directoryURL.path,
+            workspaceURL.appendingPathComponent("com.tiv.easyzip.finder-handoff").path
+        )
+    }
+
+    func testDefaultDirectoryURLUsesAppGroupHandoffDirectoryWithoutDuplicateComponent() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+        let appGroupFileManager = AppGroupFileManager(containerURL: workspaceURL)
+
+        let directoryURL = FinderActionHandoffStore.defaultDirectoryURL(
+            fileManager: appGroupFileManager
+        )
+
+        XCTAssertEqual(
+            directoryURL.path,
+            workspaceURL.appendingPathComponent("com.tiv.easyzip.finder-handoff").path
+        )
+    }
+
+    func testBuildsDirectoryURLFromTemporaryDirectoryWhenAppGroupIsUnavailable() {
+        let directoryURL = FinderActionHandoffStore.directoryURL(
+            appGroupContainerURL: nil,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(
+            directoryURL.path,
+            fileManager.temporaryDirectory
+                .appendingPathComponent("com.tiv.easyzip.finder-handoff")
+                .path
+        )
+    }
+
     func testRejectsInvalidIdentifier() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -186,5 +257,20 @@ final class FinderActionHandoffStoreTests: XCTestCase {
 
     private func makeWorkspaceURL() throws -> URL {
         try TemporaryWorkspace.makeURL(prefix: "EasyZipHandoffTests", fileManager: fileManager)
+    }
+}
+
+private final class AppGroupFileManager: FileManager {
+    private let containerURL: URL
+
+    init(containerURL: URL) {
+        self.containerURL = containerURL
+        super.init()
+    }
+
+    override func containerURL(
+        forSecurityApplicationGroupIdentifier groupIdentifier: String
+    ) -> URL? {
+        containerURL
     }
 }

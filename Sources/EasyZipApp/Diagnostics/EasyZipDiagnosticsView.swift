@@ -40,7 +40,7 @@ struct EasyZipDiagnosticsView: View {
                 Text("环境诊断")
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text("检查安装位置, Finder 入口, 通知权限和外部工具状态.")
+                Text("检查安装位置, Finder 入口, App Group, 通知权限和外部工具状态.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

@@ -35,6 +35,8 @@
     </array>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>EZAppGroupIdentifier</key>
+    <string>group.com.tiv.easyzip</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
     <key>LSMinimumSystemVersion</key>

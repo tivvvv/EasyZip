@@ -18,8 +18,9 @@
 - 压缩引擎: 第一期使用 macOS 系统 `libarchive` 作为统一底座, 覆盖常见归档格式的读写.
 - RAR 压缩: 系统 `libarchive` 不提供 RAR writer, 因此通过可选外部 `rar` 命令接入.
 - Zstandard 压缩: 当前 macOS `libarchive` 通过外部 `zstd` 程序提供 `.tar.zst` 写入能力.
-- App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`, 默认 ad-hoc 签名.
-- 产物检查: 通过 `Scripts/check_app_bundle.sh` 校验 `.app` 结构, plist 字段, Finder Sync extension 和签名.
+- App 交付: 通过 `Scripts/build_app_bundle.sh` 生成 `dist/易压缩.app`, 默认 ad-hoc 签名并注入 sandbox entitlements.
+- App Group: App 和 Finder Sync extension 默认使用 `group.com.tiv.easyzip`, 可通过 `APP_GROUP_IDENTIFIER` 覆盖.
+- 产物检查: 通过 `Scripts/check_app_bundle.sh` 校验 `.app` 结构, plist 字段, Finder Sync extension, App Group entitlements 和签名.
 - DMG 交付: 通过 `Scripts/package_dmg.sh` 生成安装包, 通过 `Scripts/check_dmg.sh` 校验挂载内容.
 - 发布交付: 通过 `Scripts/release_build.sh` 生成 zip, dmg, SHA256 校验文件和构建摘要.
 - 公证交付: 通过 `Scripts/notarize_release.sh` 提交 dmg 公证, 需要 Developer ID 签名和 Apple 凭据.
@@ -134,7 +135,7 @@ EasyZipCore
 - `EasyZipOnboardingState` 使用 `UserDefaults` 记录首次启动引导完成状态.
 - 首次启动引导由 AppDelegate 按需创建独立窗口, 完成或关闭后不再自动展示.
 - 菜单栏状态面板可重新打开首次启动引导.
-- `EasyZipDiagnosticsModel` 汇总安装位置, Finder Sync, 通知权限, RAR 命令, zstd 命令, 默认输出目录和签名状态.
+- `EasyZipDiagnosticsModel` 汇总安装位置, Finder Sync, App Group, 通知权限, RAR 命令, zstd 命令, 默认输出目录和签名状态.
 - Finder Sync 启用状态不做不稳定推断, 诊断页提供扩展设置入口让用户确认.
 - 诊断页可从菜单栏状态面板和设置页打开.
 - `ArchiveTaskRunner` 负责 UI 层任务编排, `EasyZipAppModel` 只保留状态流转和用户操作入口.
@@ -149,7 +150,9 @@ EasyZipCore
 - 菜单栏状态面板和应用菜单可打开设置页.
 - AppDelegate 统一处理应用退出, 运行中任务会先确认并取消后再退出.
 - `TaskCompletionNotifier` 在设置允许时发送 macOS 系统通知.
-- Finder Sync extension 打包在 `Contents/PlugIns`, 通过临时 handoff 文件把 Finder 选择传回主 app.
+- Finder Sync extension 打包在 `Contents/PlugIns`, 通过 App Group handoff 文件把 Finder 选择传回主 app.
+- `FinderActionHandoffStore` 会优先使用 App Group 共享容器, 共享容器不可用时回退开发环境临时目录.
+- Finder handoff payload 会为真实文件写入 security scoped bookmark, 主 App 读取后保留访问权限直到应用退出.
 - `easyzip://` URL scheme 只传递操作模式和 handoff id, 旧 `item` query 入口保留兼容.
 - Finder handoff 使用 0700 目录权限和 0600 文件权限, 并限制单次文件数量和 payload 大小.
 - App 启动时会清理过期 Finder handoff 文件.
@@ -166,7 +169,7 @@ EasyZipCore
 - 发布构建会生成 zip 和 dmg, 并在摘要中记录版本号, UTC 构建时间, commit hash 和 SHA256.
 - DMG 打包会包含 `易压缩.app` 和 Applications 入口, 生成后会挂载校验.
 - Developer ID 签名可通过 `CODE_SIGN_IDENTITY` 注入, 公证步骤由独立脚本手动触发.
-- 产物完整性检查会覆盖 Finder Sync extension, URL scheme, Services, `LSUIElement`, 版本号和签名状态.
+- 产物完整性检查会覆盖 Finder Sync extension, URL scheme, Services, `LSUIElement`, 版本号, App Group entitlements 和签名状态.
 - 当前不支持分卷归档.
 
 ## 设计原则
@@ -196,5 +199,5 @@ EasyZipCore
 - RAR 兼容性: 如 libarchive 对部分 RAR 变体不足, 增加 `UnarEngine` 或 `XADEngine` 作为解压 fallback.
 - tar 系列: 已通过现有 `LibArchiveEngine` 接入 `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz` 和 `.tar.zst`.
 - 归档预览: 已接入所选条目解压, 条目详情面板和多选快捷操作.
-- Finder 扩展: 已新增 Finder Sync extension, 后续可接 App Group 或 XPC 传递更大批量的选择.
-- 沙盒分发: `EasyZipShared` 已保留 App Group handoff 目录入口, 后续开启 App Sandbox 时切换容器.
+- Finder 扩展: 已新增 Finder Sync extension 和 App Group handoff, 后续可接 XPC 承载更复杂的后台协作.
+- 沙盒分发: 已新增 App Sandbox entitlements, App Group 共享容器校验和 Finder handoff security scoped bookmark.
