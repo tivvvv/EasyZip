@@ -35,8 +35,14 @@ jobs:
           bash -n Scripts/package_dmg.sh
           bash -n Scripts/release_build.sh
 
-      - name: Run Tests
-        run: swift test
+      - name: Run Core Tests
+        run: swift test --filter EasyZipCoreTests
+
+      - name: Run App Tests
+        run: swift test --filter EasyZipAppTests
+
+      - name: Run Shared Tests
+        run: swift test --filter EasyZipSharedTests
 
       - name: Build App Product
         run: swift build --product EasyZipApp
