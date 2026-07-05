@@ -1192,22 +1192,32 @@ final class EasyZipAppModel: ObservableObject {
                 let entries = try await ArchiveService.makeDefault().listEntries(in: archiveURL)
                 let rows = entries.map(ArchiveEntryRow.init)
 
-                await MainActor.run {
-                    self?.archiveEntries = rows
-                    if !selectedEntryPaths.isEmpty {
-                        let selectablePaths = Set(rows.filter(\.canSelectForExtraction).map(\.path))
-                        self?.selectedArchiveEntryPaths = selectedEntryPaths.intersection(selectablePaths)
-                    }
-                    self?.previewState = rows.isEmpty ? "归档为空" : "\(rows.count) 个条目"
-                }
+                await self?.applyArchivePreviewRows(
+                    rows,
+                    preservingSelection: selectedEntryPaths
+                )
             } catch {
-                await MainActor.run {
-                    self?.archiveEntries = []
-                    self?.selectedArchiveEntryPaths.removeAll()
-                    self?.previewState = "预览不可用"
-                }
+                await self?.failArchivePreview()
             }
         }
+    }
+
+    private func applyArchivePreviewRows(
+        _ rows: [ArchiveEntryRow],
+        preservingSelection selectedEntryPaths: Set<String>
+    ) {
+        archiveEntries = rows
+        if !selectedEntryPaths.isEmpty {
+            let selectablePaths = Set(rows.filter(\.canSelectForExtraction).map(\.path))
+            selectedArchiveEntryPaths = selectedEntryPaths.intersection(selectablePaths)
+        }
+        previewState = rows.isEmpty ? "归档为空" : "\(rows.count) 个条目"
+    }
+
+    private func failArchivePreview() {
+        archiveEntries = []
+        selectedArchiveEntryPaths.removeAll()
+        previewState = "预览不可用"
     }
 
     private func apply(_ progress: ArchiveProgress) {

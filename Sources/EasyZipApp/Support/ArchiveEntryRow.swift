@@ -1,7 +1,7 @@
 import EasyZipCore
 import Foundation
 
-struct ArchiveEntryRow: Identifiable {
+struct ArchiveEntryRow: Identifiable, Sendable {
     let id: String
     let path: String
     let name: String
@@ -104,7 +104,7 @@ struct ArchiveEntryRow: Identifiable {
     }
 }
 
-struct ArchiveEntryRisk: Equatable {
+struct ArchiveEntryRisk: Equatable, Sendable {
     let title: String
     let detail: String
     let iconName: String
