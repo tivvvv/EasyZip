@@ -35,8 +35,32 @@ jobs:
           bash -n Scripts/package_dmg.sh
           bash -n Scripts/release_build.sh
 
-      - name: Run Core Tests
-        run: swift test --filter EasyZipCoreTests
+      - name: Run Archive Engine Registry Tests
+        run: swift test --filter ArchiveEngineRegistryTests
+
+      - name: Run Archive Fixture Tests
+        run: swift test --filter ArchiveFixtureTests
+
+      - name: Run Archive Format Detector Tests
+        run: swift test --filter ArchiveFormatDetectorTests
+
+      - name: Run Archive Path Validator Tests
+        run: swift test --filter ArchivePathValidatorTests
+
+      - name: Run LibArchive Engine Tests
+        run: swift test --filter LibArchiveEngineTests
+
+      - name: Run LibArchive Entry Selector Tests
+        run: swift test --filter LibArchiveExtractionEntrySelectorTests
+
+      - name: Run LibArchive Read Error Mapper Tests
+        run: swift test --filter LibArchiveReadErrorMapperTests
+
+      - name: Run RAR Command Resolver Tests
+        run: swift test --filter RARCommandResolverTests
+
+      - name: Run Zstd Command Resolver Tests
+        run: swift test --filter ZstdCommandResolverTests
 
       - name: Run App Tests
         run: swift test --filter EasyZipAppTests
