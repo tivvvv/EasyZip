@@ -34,42 +34,43 @@ jobs:
           bash -n Scripts/notarize_release.sh
           bash -n Scripts/package_dmg.sh
           bash -n Scripts/release_build.sh
+          bash -n Scripts/run_ci_command.sh
 
       - name: Run Archive Engine Registry Tests
-        run: swift test --filter EasyZipCoreTests.ArchiveEngineRegistryTests
+        run: Scripts/run_ci_command.sh "Run Archive Engine Registry Tests failed" swift test --filter EasyZipCoreTests.ArchiveEngineRegistryTests
 
       - name: Run Archive Fixture Tests
-        run: swift test --filter EasyZipCoreTests.ArchiveFixtureTests
+        run: Scripts/run_ci_command.sh "Run Archive Fixture Tests failed" swift test --filter EasyZipCoreTests.ArchiveFixtureTests
 
       - name: Run Archive Format Detector Tests
-        run: swift test --filter EasyZipCoreTests.ArchiveFormatDetectorTests
+        run: Scripts/run_ci_command.sh "Run Archive Format Detector Tests failed" swift test --filter EasyZipCoreTests.ArchiveFormatDetectorTests
 
       - name: Run Archive Path Validator Tests
-        run: swift test --filter EasyZipCoreTests.ArchivePathValidatorTests
+        run: Scripts/run_ci_command.sh "Run Archive Path Validator Tests failed" swift test --filter EasyZipCoreTests.ArchivePathValidatorTests
 
       - name: Run LibArchive Engine Tests
-        run: swift test --filter EasyZipCoreTests.LibArchiveEngineTests
+        run: Scripts/run_ci_command.sh "Run LibArchive Engine Tests failed" swift test --filter EasyZipCoreTests.LibArchiveEngineTests
 
       - name: Run LibArchive Entry Selector Tests
-        run: swift test --filter EasyZipCoreTests.LibArchiveExtractionEntrySelectorTests
+        run: Scripts/run_ci_command.sh "Run LibArchive Entry Selector Tests failed" swift test --filter EasyZipCoreTests.LibArchiveExtractionEntrySelectorTests
 
       - name: Run LibArchive Read Error Mapper Tests
-        run: swift test --filter EasyZipCoreTests.LibArchiveReadErrorMapperTests
+        run: Scripts/run_ci_command.sh "Run LibArchive Read Error Mapper Tests failed" swift test --filter EasyZipCoreTests.LibArchiveReadErrorMapperTests
 
       - name: Run RAR Command Resolver Tests
-        run: swift test --filter EasyZipCoreTests.RARCommandResolverTests
+        run: Scripts/run_ci_command.sh "Run RAR Command Resolver Tests failed" swift test --filter EasyZipCoreTests.RARCommandResolverTests
 
       - name: Run Zstd Command Resolver Tests
-        run: swift test --filter EasyZipCoreTests.ZstdCommandResolverTests
+        run: Scripts/run_ci_command.sh "Run Zstd Command Resolver Tests failed" swift test --filter EasyZipCoreTests.ZstdCommandResolverTests
 
       - name: Run App Tests
-        run: swift test --filter EasyZipAppTests.
+        run: Scripts/run_ci_command.sh "Run App Tests failed" swift test --filter EasyZipAppTests.
 
       - name: Run Shared Tests
-        run: swift test --filter EasyZipSharedTests.
+        run: Scripts/run_ci_command.sh "Run Shared Tests failed" swift test --filter EasyZipSharedTests.
 
       - name: Build App Product
-        run: swift build --product EasyZipApp
+        run: Scripts/run_ci_command.sh "Build App Product failed" swift build --product EasyZipApp
 
       - name: Build App Bundle
         run: Scripts/build_app_bundle.sh
@@ -95,6 +96,7 @@ jobs:
               Scripts/notarize_release.sh
               Scripts/package_dmg.sh
               Scripts/release_build.sh
+              Scripts/run_ci_command.sh
           )
 
           while IFS= read -r -d '' file; do

@@ -18,6 +18,7 @@ bash -n Scripts/check_dmg.sh
 bash -n Scripts/notarize_release.sh
 bash -n Scripts/package_dmg.sh
 bash -n Scripts/release_build.sh
+bash -n Scripts/run_ci_command.sh
 swift test
 swift build --product EasyZipApp
 Scripts/build_app_bundle.sh
@@ -36,6 +37,7 @@ scan_files=(
     Scripts/notarize_release.sh
     Scripts/package_dmg.sh
     Scripts/release_build.sh
+    Scripts/run_ci_command.sh
 )
 
 while IFS= read -r -d '' file; do
