@@ -20,6 +20,32 @@ enum SystemSettingsOpener {
         ])
     }
 
+    static func openLoginItemsSettings() {
+        openFirstAvailableURL([
+            URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension"),
+            URL(string: "x-apple.systempreferences:com.apple.preferences.users?LoginItems")
+        ])
+    }
+
+    static func restartFinder() async -> Bool {
+        await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
+            process.arguments = ["Finder"]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                return false
+            }
+
+            return process.terminationStatus == 0
+        }.value
+    }
+
     private static func openFirstAvailableURL(_ urls: [URL?]) {
         for url in urls.compactMap({ $0 }) {
             if NSWorkspace.shared.open(url) {

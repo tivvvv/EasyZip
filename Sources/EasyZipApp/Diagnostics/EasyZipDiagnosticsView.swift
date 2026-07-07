@@ -7,6 +7,9 @@ struct EasyZipDiagnosticsActions {
 struct EasyZipDiagnosticsView: View {
     @StateObject private var model: EasyZipDiagnosticsModel
     let actions: EasyZipDiagnosticsActions
+    private let quickActionColumns = [
+        GridItem(.adaptive(minimum: 132), spacing: 8)
+    ]
 
     init(
         model: EasyZipDiagnosticsModel,
@@ -19,11 +22,13 @@ struct EasyZipDiagnosticsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             header
+            summaryPanel
+            quickActionsPanel
             diagnosticsList
             footer
         }
         .padding(24)
-        .frame(width: 620, height: 560)
+        .frame(width: 680, height: 680)
         .task {
             await model.refresh()
         }
@@ -40,13 +45,76 @@ struct EasyZipDiagnosticsView: View {
                 Text("环境诊断")
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text("检查安装位置, Finder 入口, App Group, 通知权限和外部工具状态.")
+                Text("检查安装位置, Finder 扩展, 沙盒授权, 通知权限和外部工具状态.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 0)
         }
+    }
+
+    private var summaryPanel: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: summarySystemImage)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(summaryColor)
+                .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.summaryTitle)
+                    .font(.headline)
+                Text(model.summaryDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var summarySystemImage: String {
+        if model.items.isEmpty {
+            return "clock"
+        }
+
+        return model.needsActionCount > 0 ? "exclamationmark.triangle" : "checkmark.seal"
+    }
+
+    private var summaryColor: Color {
+        if model.items.isEmpty {
+            return .secondary
+        }
+
+        return model.needsActionCount > 0 ? .orange : .green
+    }
+
+    private var quickActionsPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("快速修复")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            LazyVGrid(columns: quickActionColumns, alignment: .leading, spacing: 8) {
+                ForEach(model.quickActions) { action in
+                    Button {
+                        perform(action.action)
+                    } label: {
+                        Label(action.title, systemImage: action.systemImage)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var diagnosticsList: some View {
@@ -67,7 +135,7 @@ struct EasyZipDiagnosticsView: View {
 
     private var footer: some View {
         HStack {
-            Text("部分系统扩展状态需要在 System Settings 中确认.")
+            Text("Finder Sync 启用状态需要在 System Settings 中确认.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -130,7 +198,8 @@ struct EasyZipDiagnosticsView: View {
     private func perform(_ action: EasyZipDiagnosticAction) {
         actions.perform(action)
 
-        guard action == .requestNotificationAuthorization else {
+        guard action == .requestNotificationAuthorization ||
+              action == .restartFinder else {
             return
         }
 

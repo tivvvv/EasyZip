@@ -135,8 +135,8 @@ EasyZipCore
 - `EasyZipOnboardingState` 使用 `UserDefaults` 记录首次启动引导完成状态.
 - 首次启动引导由 AppDelegate 按需创建独立窗口, 完成或关闭后不再自动展示.
 - 菜单栏状态面板可重新打开首次启动引导.
-- `EasyZipDiagnosticsModel` 汇总安装位置, Finder Sync, App Group, 通知权限, RAR 命令, zstd 命令, 默认输出目录和签名状态.
-- Finder Sync 启用状态不做不稳定推断, 诊断页提供扩展设置入口让用户确认.
+- `EasyZipDiagnosticsModel` 汇总安装位置, Finder 扩展包, sandbox entitlements, Finder Sync, App Group, 通知权限, RAR 命令, zstd 命令, 默认输出目录和签名状态.
+- Finder Sync 启用状态不做不稳定推断, 诊断页提供扩展设置入口和重启 Finder 入口让用户确认和修复.
 - 诊断页可从菜单栏状态面板和设置页打开.
 - `ArchiveTaskRunner` 负责 UI 层任务编排, `EasyZipAppModel` 只保留状态流转和用户操作入口.
 - `ArchiveQueuedTask` 负责描述当前会话任务队列项, 完成后会清理快照中的密码字段, 密码等待任务会暂停调度.

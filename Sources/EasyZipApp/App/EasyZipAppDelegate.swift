@@ -560,7 +560,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 )
             )
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 640, height: 580),
+                contentRect: NSRect(x: 0, y: 0, width: 700, height: 700),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
                 defer: false
@@ -590,11 +590,44 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             SystemSettingsOpener.openFinderExtensionSettings()
         case .openNotificationSettings:
             SystemSettingsOpener.openNotificationSettings()
+        case .openLoginItemsSettings:
+            SystemSettingsOpener.openLoginItemsSettings()
         case .requestNotificationAuthorization:
             TaskCompletionNotifier.requestAuthorization()
         case .openSettings:
             showSettings()
+        case .openWorkspace:
+            showWorkspace()
+        case .restartFinder:
+            restartFinderFromDiagnostics()
         }
+    }
+
+    private func restartFinderFromDiagnostics() {
+        Task { @MainActor in
+            let didRestart = await SystemSettingsOpener.restartFinder()
+            showDiagnosticResultAlert(
+                title: didRestart ? "Finder 已重启" : "无法重启 Finder",
+                message: didRestart
+                    ? "请稍等片刻后重新打开 Finder 右键菜单."
+                    : "当前系统环境拒绝重启 Finder, 请手动注销或重新启动 Finder 后再试."
+            )
+        }
+    }
+
+    private func showDiagnosticResultAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "好")
+
+        guard let window = diagnosticsWindow else {
+            alert.runModal()
+            return
+        }
+
+        alert.beginSheetModal(for: window) { _ in }
     }
 
     private func showSettings() {

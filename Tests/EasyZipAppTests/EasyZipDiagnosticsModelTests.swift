@@ -24,6 +24,8 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
 
         XCTAssertEqual(model.items.count, EasyZipDiagnosticID.allCases.count)
         XCTAssertEqual(model.item(with: .appLocation)?.status, .normal)
+        XCTAssertEqual(model.item(with: .finderExtensionBundle)?.status, .normal)
+        XCTAssertEqual(model.item(with: .sandboxEntitlements)?.status, .normal)
         XCTAssertEqual(model.item(with: .finderExtension)?.status, .unsupported)
         XCTAssertEqual(model.item(with: .appGroup)?.status, .normal)
         XCTAssertEqual(model.item(with: .notificationPermission)?.status, .normal)
@@ -31,6 +33,13 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(model.item(with: .zstdCommand)?.status, .normal)
         XCTAssertEqual(model.item(with: .defaultOutputDirectory)?.status, .normal)
         XCTAssertEqual(model.item(with: .codeSignature)?.status, .normal)
+        XCTAssertEqual(model.needsActionCount, 0)
+        XCTAssertEqual(model.quickActions.map(\.action), [
+            .openFinderExtensionSettings,
+            .restartFinder,
+            .openLoginItemsSettings,
+            .openWorkspace
+        ])
     }
 
     func testBuildsActionableDiagnosticItems() async {
@@ -44,17 +53,24 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
             rarAvailability: ExternalToolAvailability(name: "rar", executableURL: nil),
             zstdAvailability: ExternalToolAvailability(name: "zstd", executableURL: nil),
             codeSignatureStatus: .needsAction,
-            appGroupStatus: .needsAction
+            appGroupStatus: .needsAction,
+            finderExtensionBundleStatus: .needsAction,
+            sandboxEntitlementsStatus: .needsAction
         )
 
         await model.refresh()
 
         XCTAssertEqual(model.item(with: .appLocation)?.status, .needsAction)
         XCTAssertEqual(model.item(with: .appLocation)?.action, .openApplications)
+        XCTAssertEqual(model.item(with: .finderExtensionBundle)?.status, .needsAction)
+        XCTAssertEqual(model.item(with: .finderExtensionBundle)?.action, .openApplications)
+        XCTAssertEqual(model.item(with: .sandboxEntitlements)?.status, .needsAction)
+        XCTAssertEqual(model.item(with: .sandboxEntitlements)?.action, .openApplications)
         XCTAssertEqual(model.item(with: .appGroup)?.status, .needsAction)
         XCTAssertNil(model.item(with: .appGroup)?.action)
         XCTAssertEqual(model.item(with: .notificationPermission)?.status, .needsAction)
         XCTAssertEqual(model.item(with: .notificationPermission)?.action, .openNotificationSettings)
+        XCTAssertTrue(model.quickActions.map(\.action).contains(.openNotificationSettings))
         XCTAssertEqual(model.item(with: .rarCommand)?.status, .needsAction)
         XCTAssertNil(model.item(with: .rarCommand)?.action)
         XCTAssertEqual(model.item(with: .zstdCommand)?.status, .needsAction)
@@ -62,6 +78,8 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(model.item(with: .defaultOutputDirectory)?.status, .needsAction)
         XCTAssertEqual(model.item(with: .defaultOutputDirectory)?.action, .openSettings)
         XCTAssertEqual(model.item(with: .codeSignature)?.status, .needsAction)
+        XCTAssertEqual(model.needsActionCount, 9)
+        XCTAssertEqual(model.summaryTitle, "9 项需要处理")
     }
 
     func testRequestsNotificationPermissionWhenStatusIsNotDetermined() async {
@@ -71,6 +89,20 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
 
         XCTAssertEqual(model.item(with: .notificationPermission)?.status, .needsAction)
         XCTAssertEqual(model.item(with: .notificationPermission)?.action, .requestNotificationAuthorization)
+        XCTAssertTrue(model.quickActions.map(\.action).contains(.requestNotificationAuthorization))
+    }
+
+    func testReportsUnsupportedBundleSpecificChecksWhenNotRunningAsAppBundle() async {
+        let model = makeModel(
+            bundleURL: URL(fileURLWithPath: "/tmp/EasyZipApp", isDirectory: false),
+            finderExtensionBundleStatus: .unsupported,
+            sandboxEntitlementsStatus: .unsupported
+        )
+
+        await model.refresh()
+
+        XCTAssertEqual(model.item(with: .finderExtensionBundle)?.status, .unsupported)
+        XCTAssertEqual(model.item(with: .sandboxEntitlements)?.status, .unsupported)
     }
 
     private func makeModel(
@@ -86,7 +118,9 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
             executableURL: URL(fileURLWithPath: "/usr/local/bin/zstd")
         ),
         codeSignatureStatus: EasyZipDiagnosticStatus = .normal,
-        appGroupStatus: EasyZipDiagnosticStatus = .normal
+        appGroupStatus: EasyZipDiagnosticStatus = .normal,
+        finderExtensionBundleStatus: EasyZipDiagnosticStatus = .normal,
+        sandboxEntitlementsStatus: EasyZipDiagnosticStatus = .normal
     ) -> EasyZipDiagnosticsModel {
         EasyZipDiagnosticsModel(
             settings: settings ?? makeSettings(),
@@ -96,7 +130,9 @@ final class EasyZipDiagnosticsModelTests: XCTestCase {
             rarAvailabilityProvider: { rarAvailability },
             zstdAvailabilityProvider: { zstdAvailability },
             codeSignatureStatusProvider: { _ in codeSignatureStatus },
-            appGroupStatusProvider: { _ in appGroupStatus }
+            appGroupStatusProvider: { _ in appGroupStatus },
+            finderExtensionBundleStatusProvider: { _ in finderExtensionBundleStatus },
+            sandboxEntitlementsStatusProvider: { _, _ in sandboxEntitlementsStatus }
         )
     }
 

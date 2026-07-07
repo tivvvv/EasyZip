@@ -5,6 +5,8 @@ import UserNotifications
 
 enum EasyZipDiagnosticID: String, CaseIterable, Sendable {
     case appLocation
+    case finderExtensionBundle
+    case sandboxEntitlements
     case finderExtension
     case appGroup
     case notificationPermission
@@ -46,8 +48,11 @@ enum EasyZipDiagnosticAction: Equatable, Sendable {
     case openApplications
     case openFinderExtensionSettings
     case openNotificationSettings
+    case openLoginItemsSettings
     case requestNotificationAuthorization
     case openSettings
+    case openWorkspace
+    case restartFinder
 }
 
 struct EasyZipDiagnosticItem: Identifiable, Equatable, Sendable {
@@ -75,9 +80,29 @@ struct EasyZipDiagnosticItem: Identifiable, Equatable, Sendable {
     }
 }
 
+struct EasyZipDiagnosticQuickAction: Identifiable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let action: EasyZipDiagnosticAction
+
+    init(
+        id: String,
+        title: String,
+        systemImage: String,
+        action: EasyZipDiagnosticAction
+    ) {
+        self.id = id
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
+}
+
 @MainActor
 final class EasyZipDiagnosticsModel: ObservableObject {
     @Published private(set) var items: [EasyZipDiagnosticItem] = []
+    @Published private(set) var quickActions: [EasyZipDiagnosticQuickAction] = []
     @Published private(set) var isRefreshing = false
 
     private let settings: EasyZipAppSettings
@@ -88,6 +113,8 @@ final class EasyZipDiagnosticsModel: ObservableObject {
     private let codeSignatureStatusProvider: (URL) async -> EasyZipDiagnosticStatus
     private let appGroupIdentifier: String
     private let appGroupStatusProvider: (String) -> EasyZipDiagnosticStatus
+    private let finderExtensionBundleStatusProvider: (URL) async -> EasyZipDiagnosticStatus
+    private let sandboxEntitlementsStatusProvider: (URL, String) async -> EasyZipDiagnosticStatus
 
     init(
         settings: EasyZipAppSettings = .shared,
@@ -104,7 +131,11 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         codeSignatureStatusProvider: @escaping (URL) async -> EasyZipDiagnosticStatus =
             EasyZipDiagnosticsModel.currentCodeSignatureStatus,
         appGroupStatusProvider: @escaping (String) -> EasyZipDiagnosticStatus =
-            EasyZipDiagnosticsModel.currentAppGroupStatus
+            EasyZipDiagnosticsModel.currentAppGroupStatus,
+        finderExtensionBundleStatusProvider: @escaping (URL) async -> EasyZipDiagnosticStatus =
+            EasyZipDiagnosticsModel.currentFinderExtensionBundleStatus,
+        sandboxEntitlementsStatusProvider: @escaping (URL, String) async -> EasyZipDiagnosticStatus =
+            EasyZipDiagnosticsModel.currentSandboxEntitlementsStatus
     ) {
         self.settings = settings
         self.bundleURL = bundleURL
@@ -114,6 +145,48 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         self.zstdAvailabilityProvider = zstdAvailabilityProvider
         self.codeSignatureStatusProvider = codeSignatureStatusProvider
         self.appGroupStatusProvider = appGroupStatusProvider
+        self.finderExtensionBundleStatusProvider = finderExtensionBundleStatusProvider
+        self.sandboxEntitlementsStatusProvider = sandboxEntitlementsStatusProvider
+    }
+
+    var summaryTitle: String {
+        if items.isEmpty {
+            return "正在检查"
+        }
+
+        if needsActionCount > 0 {
+            return "\(needsActionCount) 项需要处理"
+        }
+
+        if unsupportedCount > 0 {
+            return "可自动检测项目正常"
+        }
+
+        return "安装状态正常"
+    }
+
+    var summaryDetail: String {
+        if items.isEmpty {
+            return "正在读取安装状态和系统权限."
+        }
+
+        if needsActionCount > 0 {
+            return "建议先处理标记项目, 再确认 Finder 右键菜单是否出现."
+        }
+
+        if unsupportedCount > 0 {
+            return "Finder Sync 启用状态仍需要在 System Settings 中人工确认."
+        }
+
+        return "安装位置, 签名, 共享容器, Finder 扩展和通知状态均已通过检测."
+    }
+
+    var needsActionCount: Int {
+        items.filter { $0.status == .needsAction }.count
+    }
+
+    var unsupportedCount: Int {
+        items.filter { $0.status == .unsupported }.count
     }
 
     func refresh() async {
@@ -121,12 +194,19 @@ final class EasyZipDiagnosticsModel: ObservableObject {
 
         let notificationStatus = await notificationAuthorizationStatusProvider()
         let codeSignatureStatus = await codeSignatureStatusProvider(bundleURL)
+        let finderExtensionBundleStatus = await finderExtensionBundleStatusProvider(bundleURL)
+        let sandboxEntitlementsStatus = await sandboxEntitlementsStatusProvider(
+            bundleURL,
+            appGroupIdentifier
+        )
         let rarAvailability = rarAvailabilityProvider()
         let zstdAvailability = zstdAvailabilityProvider()
         let appGroupStatus = appGroupStatusProvider(appGroupIdentifier)
 
         items = [
             appLocationItem(),
+            finderExtensionBundleItem(for: finderExtensionBundleStatus),
+            sandboxEntitlementsItem(for: sandboxEntitlementsStatus),
             finderExtensionItem(),
             appGroupItem(for: appGroupStatus),
             notificationPermissionItem(for: notificationStatus),
@@ -135,6 +215,7 @@ final class EasyZipDiagnosticsModel: ObservableObject {
             defaultOutputDirectoryItem(),
             codeSignatureItem(for: codeSignatureStatus)
         ]
+        quickActions = quickActionItems(for: notificationStatus)
         isRefreshing = false
     }
 
@@ -168,11 +249,71 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         EasyZipDiagnosticItem(
             id: .finderExtension,
             title: "Finder 右键菜单",
-            detail: "macOS 不提供稳定自动检测, 请在 Finder Extensions 中确认 EasyZip 已启用.",
+            detail: "macOS 不提供稳定自动检测, 请在 Finder Extensions 中确认 EasyZip Finder Sync Extension 已启用.",
             status: .unsupported,
             actionTitle: "扩展设置",
             action: .openFinderExtensionSettings
         )
+    }
+
+    private func finderExtensionBundleItem(
+        for status: EasyZipDiagnosticStatus
+    ) -> EasyZipDiagnosticItem {
+        switch status {
+        case .normal:
+            return EasyZipDiagnosticItem(
+                id: .finderExtensionBundle,
+                title: "Finder 扩展包",
+                detail: "Finder Sync extension 已嵌入应用包.",
+                status: .normal
+            )
+        case .needsAction:
+            return EasyZipDiagnosticItem(
+                id: .finderExtensionBundle,
+                title: "Finder 扩展包",
+                detail: "应用包内未找到可用 Finder Sync extension, 建议重新安装发布包.",
+                status: .needsAction,
+                actionTitle: "打开 Applications",
+                action: .openApplications
+            )
+        case .unsupported:
+            return EasyZipDiagnosticItem(
+                id: .finderExtensionBundle,
+                title: "Finder 扩展包",
+                detail: "当前运行方式不是正式 .app 包, 无法检查 Finder Sync extension.",
+                status: .unsupported
+            )
+        }
+    }
+
+    private func sandboxEntitlementsItem(
+        for status: EasyZipDiagnosticStatus
+    ) -> EasyZipDiagnosticItem {
+        switch status {
+        case .normal:
+            return EasyZipDiagnosticItem(
+                id: .sandboxEntitlements,
+                title: "沙盒授权",
+                detail: "App Sandbox, App Group 和文件访问授权完整.",
+                status: .normal
+            )
+        case .needsAction:
+            return EasyZipDiagnosticItem(
+                id: .sandboxEntitlements,
+                title: "沙盒授权",
+                detail: "应用签名授权不完整, Finder 选择或 App Group handoff 可能不可用.",
+                status: .needsAction,
+                actionTitle: "打开 Applications",
+                action: .openApplications
+            )
+        case .unsupported:
+            return EasyZipDiagnosticItem(
+                id: .sandboxEntitlements,
+                title: "沙盒授权",
+                detail: "当前运行方式不支持沙盒授权自动检测.",
+                status: .unsupported
+            )
+        }
     }
 
     private func appGroupItem(for status: EasyZipDiagnosticStatus) -> EasyZipDiagnosticItem {
@@ -339,6 +480,64 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         }
     }
 
+    private func quickActionItems(
+        for notificationStatus: UNAuthorizationStatus
+    ) -> [EasyZipDiagnosticQuickAction] {
+        var actions = [
+            EasyZipDiagnosticQuickAction(
+                id: "openFinderExtensionSettings",
+                title: "扩展设置",
+                systemImage: "puzzlepiece.extension",
+                action: .openFinderExtensionSettings
+            ),
+            EasyZipDiagnosticQuickAction(
+                id: "restartFinder",
+                title: "重启 Finder",
+                systemImage: "arrow.clockwise",
+                action: .restartFinder
+            ),
+            EasyZipDiagnosticQuickAction(
+                id: "openLoginItemsSettings",
+                title: "登录项",
+                systemImage: "power",
+                action: .openLoginItemsSettings
+            ),
+            EasyZipDiagnosticQuickAction(
+                id: "openWorkspace",
+                title: "打开工作台",
+                systemImage: "macwindow",
+                action: .openWorkspace
+            )
+        ]
+
+        switch notificationStatus {
+        case .notDetermined:
+            actions.insert(
+                EasyZipDiagnosticQuickAction(
+                    id: "requestNotificationAuthorization",
+                    title: "请求通知",
+                    systemImage: "bell.badge",
+                    action: .requestNotificationAuthorization
+                ),
+                at: 2
+            )
+        case .denied:
+            actions.insert(
+                EasyZipDiagnosticQuickAction(
+                    id: "openNotificationSettings",
+                    title: "通知设置",
+                    systemImage: "bell",
+                    action: .openNotificationSettings
+                ),
+                at: 2
+            )
+        default:
+            break
+        }
+
+        return actions
+    }
+
     private static func currentNotificationAuthorizationStatus() async -> UNAuthorizationStatus {
         await withCheckedContinuation { continuation in
             UNUserNotificationCenter.current().getNotificationSettings { settings in
@@ -353,6 +552,75 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         FinderActionHandoffStore.appGroupDirectoryURL(groupIdentifier: groupIdentifier) == nil
             ? .needsAction
             : .normal
+    }
+
+    private static func currentFinderExtensionBundleStatus(
+        for bundleURL: URL
+    ) async -> EasyZipDiagnosticStatus {
+        guard bundleURL.pathExtension == "app" else {
+            return .unsupported
+        }
+
+        return await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            let extensionURL = finderExtensionBundleURL(for: bundleURL)
+            let infoPlistURL = extensionURL.appendingPathComponent("Contents/Info.plist")
+            let executableURL = extensionURL.appendingPathComponent(
+                "Contents/MacOS/EasyZipFinderSyncExtension"
+            )
+
+            guard fileManager.fileExists(atPath: extensionURL.path),
+                  fileManager.isExecutableFile(atPath: executableURL.path),
+                  let plist = NSDictionary(contentsOf: infoPlistURL) as? [String: Any],
+                  plist["CFBundleExecutable"] as? String == "EasyZipFinderSyncExtension",
+                  plist["CFBundlePackageType"] as? String == "XPC!",
+                  let extensionPlist = plist["NSExtension"] as? [String: Any],
+                  extensionPlist["NSExtensionPointIdentifier"] as? String == "com.apple.FinderSync" else {
+                return EasyZipDiagnosticStatus.needsAction
+            }
+
+            return .normal
+        }.value
+    }
+
+    private static func currentSandboxEntitlementsStatus(
+        for bundleURL: URL,
+        appGroupIdentifier: String
+    ) async -> EasyZipDiagnosticStatus {
+        guard bundleURL.pathExtension == "app" else {
+            return .unsupported
+        }
+
+        return await Task.detached(priority: .utility) {
+            let extensionURL = finderExtensionBundleURL(for: bundleURL)
+
+            guard let appEntitlements = codesignEntitlements(for: bundleURL),
+                  let extensionEntitlements = codesignEntitlements(for: extensionURL),
+                  entitlementIsTrue("com.apple.security.app-sandbox", in: appEntitlements),
+                  entitlementIsTrue("com.apple.security.app-sandbox", in: extensionEntitlements),
+                  entitlementContains(
+                    appGroupIdentifier,
+                    key: "com.apple.security.application-groups",
+                    in: appEntitlements
+                  ),
+                  entitlementContains(
+                    appGroupIdentifier,
+                    key: "com.apple.security.application-groups",
+                    in: extensionEntitlements
+                  ),
+                  entitlementIsTrue(
+                    "com.apple.security.files.user-selected.read-write",
+                    in: appEntitlements
+                  ),
+                  entitlementIsTrue(
+                    "com.apple.security.files.user-selected.read-only",
+                    in: extensionEntitlements
+                  ) else {
+                return EasyZipDiagnosticStatus.needsAction
+            }
+
+            return .normal
+        }.value
     }
 
     private static func currentCodeSignatureStatus(
@@ -378,5 +646,64 @@ final class EasyZipDiagnosticsModel: ObservableObject {
 
             return process.terminationStatus == 0 ? .normal : .needsAction
         }.value
+    }
+
+    nonisolated private static func finderExtensionBundleURL(for bundleURL: URL) -> URL {
+        bundleURL
+            .appendingPathComponent("Contents/PlugIns", isDirectory: true)
+            .appendingPathComponent("EasyZipFinderSyncExtension.appex", isDirectory: true)
+    }
+
+    nonisolated private static func codesignEntitlements(for targetURL: URL) -> [String: Any]? {
+        let process = Process()
+        let outputPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["-d", "--entitlements", ":-", targetURL.path]
+        process.standardOutput = outputPipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        guard !data.isEmpty,
+              let plist = try? PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+              ) as? [String: Any] else {
+            return nil
+        }
+
+        return plist
+    }
+
+    nonisolated private static func entitlementIsTrue(
+        _ key: String,
+        in entitlements: [String: Any]
+    ) -> Bool {
+        if let value = entitlements[key] as? Bool {
+            return value
+        }
+
+        return (entitlements[key] as? NSNumber)?.boolValue == true
+    }
+
+    nonisolated private static func entitlementContains(
+        _ expectedValue: String,
+        key: String,
+        in entitlements: [String: Any]
+    ) -> Bool {
+        let values = entitlements[key] as? [String]
+        return values?.contains(expectedValue) == true
     }
 }
