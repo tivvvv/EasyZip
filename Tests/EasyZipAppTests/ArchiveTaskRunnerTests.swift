@@ -124,6 +124,43 @@ final class ArchiveTaskRunnerTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: duplicatedURL.path))
     }
 
+    func testSelectedEntryExtractionRevealsExistingTopLevelDirectoryWithoutContainingOption() async throws {
+        let workspaceURL = makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = workspaceURL.appendingPathComponent("用户资料", isDirectory: true)
+        let archiveURL = workspaceURL.appendingPathComponent("用户资料.zip")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        try fileManager.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+        try "hello".write(
+            to: sourceURL.appendingPathComponent("hello.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try await ArchiveService.makeDefault().create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip
+            )
+        )
+
+        let result = try await ArchiveTaskRunner.extract(
+            archiveURLs: [archiveURL],
+            outputDirectory: outputURL,
+            overwritePolicy: .overwrite,
+            shouldCreateContainingDirectory: false,
+            selectedEntryPaths: ["用户资料/hello.txt"],
+            progressHandler: nil
+        )
+
+        let extractedURL = outputURL.appendingPathComponent("用户资料/hello.txt")
+        XCTAssertEqual(result.outputURL?.path, outputURL.appendingPathComponent("用户资料").path)
+        XCTAssertEqual(try String(contentsOf: extractedURL, encoding: .utf8), "hello")
+    }
+
     func testExtractAskPolicyUsesConflictResolverDecision() async throws {
         let workspaceURL = makeWorkspaceURL()
         defer {

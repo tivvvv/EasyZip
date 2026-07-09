@@ -57,17 +57,17 @@ enum ArchiveTaskRunner {
         for archiveURL in archiveURLs {
             try Task.checkCancellation()
 
-            let selectedEntriesIncludeContainingDirectory = selectedEntriesIncludeContainingDirectory(
+            let selectionIncludesContainingDirectory = selectionIncludesContainingDirectory(
                 archiveURL: archiveURL,
                 selectedEntryPaths: selectedEntryPaths
             )
             let effectiveShouldCreateContainingDirectory = shouldCreateContainingDirectory
-                && !selectedEntriesIncludeContainingDirectory
+                && !selectionIncludesContainingDirectory
             let destinationURL = extractionDestinationURL(
                 archiveURL: archiveURL,
                 outputDirectory: outputDirectory,
                 shouldCreateContainingDirectory: shouldCreateContainingDirectory
-                    || selectedEntriesIncludeContainingDirectory
+                    || selectionIncludesContainingDirectory
             )
             destinationURLs.append(destinationURL)
 
@@ -160,7 +160,7 @@ enum ArchiveTaskRunner {
         return directoryName.isEmpty ? "归档内容" : directoryName
     }
 
-    private static func selectedEntriesIncludeContainingDirectory(
+    private static func selectionIncludesContainingDirectory(
         archiveURL: URL,
         selectedEntryPaths: Set<String>
     ) -> Bool {
