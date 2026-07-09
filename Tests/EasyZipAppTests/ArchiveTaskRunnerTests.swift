@@ -84,6 +84,46 @@ final class ArchiveTaskRunnerTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: outputURL.appendingPathComponent("hello.txt/hello.txt").path))
     }
 
+    func testSelectedEntryExtractionAvoidsDuplicatedContainingDirectory() async throws {
+        let workspaceURL = makeWorkspaceURL()
+        defer {
+            try? fileManager.removeItem(at: workspaceURL)
+        }
+
+        let sourceURL = workspaceURL.appendingPathComponent("用户资料", isDirectory: true)
+        let nestedURL = sourceURL.appendingPathComponent("子目录", isDirectory: true)
+        let archiveURL = workspaceURL.appendingPathComponent("用户资料.zip")
+        let outputURL = workspaceURL.appendingPathComponent("output", isDirectory: true)
+        try fileManager.createDirectory(at: nestedURL, withIntermediateDirectories: true)
+        try "中文内容".write(
+            to: nestedURL.appendingPathComponent("中文 文件.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try await ArchiveService.makeDefault().create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip
+            )
+        )
+
+        let result = try await ArchiveTaskRunner.extract(
+            archiveURLs: [archiveURL],
+            outputDirectory: outputURL,
+            overwritePolicy: .overwrite,
+            shouldCreateContainingDirectory: true,
+            selectedEntryPaths: ["用户资料/子目录/中文 文件.txt"],
+            progressHandler: nil
+        )
+
+        let extractedURL = outputURL.appendingPathComponent("用户资料/子目录/中文 文件.txt")
+        let duplicatedURL = outputURL.appendingPathComponent("用户资料/用户资料/子目录/中文 文件.txt")
+        XCTAssertEqual(result.outputURL?.path, outputURL.appendingPathComponent("用户资料").path)
+        XCTAssertEqual(try String(contentsOf: extractedURL, encoding: .utf8), "中文内容")
+        XCTAssertFalse(fileManager.fileExists(atPath: duplicatedURL.path))
+    }
+
     func testExtractAskPolicyUsesConflictResolverDecision() async throws {
         let workspaceURL = makeWorkspaceURL()
         defer {

@@ -121,7 +121,7 @@ final class EasyZipAppSettingsTests: XCTestCase {
         settings.defaultOutputDirectory = missingURL
 
         XCTAssertNil(settings.effectiveDefaultOutputDirectory)
-        XCTAssertEqual(settings.defaultOutputDirectoryWarning, "默认输出目录不可用, 将跟随源文件位置")
+        XCTAssertEqual(settings.defaultOutputDirectoryWarning, "默认输出目录不可用, 请重新选择")
     }
 
     func testRestoresDefaults() {

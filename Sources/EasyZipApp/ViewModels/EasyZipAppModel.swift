@@ -13,6 +13,7 @@ final class EasyZipAppModel: ObservableObject {
             if mode != .compress {
                 disableCompressionEncryption()
             }
+            normalizeSelectedItemsForCurrentMode()
             resetProgressIfIdle()
             refreshExternalToolAvailability()
             refreshArchivePreview()
@@ -391,6 +392,10 @@ final class EasyZipAppModel: ObservableObject {
             return
         }
 
+        guard outputDirectoryIsReadyForCurrentOperation() else {
+            return
+        }
+
         enqueueTask(currentTaskSnapshot())
     }
 
@@ -420,6 +425,12 @@ final class EasyZipAppModel: ObservableObject {
         }
 
         guard compressionPasswordIsValid() else {
+            finishQueuedTaskFromCurrentResult(id: queuedTaskID, status: .failed)
+            startNextQueuedTaskIfPossible()
+            return
+        }
+
+        guard outputDirectoryIsReadyForCurrentOperation() else {
             finishQueuedTaskFromCurrentResult(id: queuedTaskID, status: .failed)
             startNextQueuedTaskIfPossible()
             return
@@ -1042,6 +1053,26 @@ final class EasyZipAppModel: ObservableObject {
         return false
     }
 
+    private func outputDirectoryIsReadyForCurrentOperation() -> Bool {
+        guard mode == .compress,
+              outputDirectory == nil else {
+            return true
+        }
+
+        let title = "请选择输出目录"
+        let message = "压缩前请先选择一个可写入的输出目录"
+        taskResult = TaskResult(
+            title: title,
+            detail: message,
+            outputURL: nil,
+            iconName: "folder.badge.plus"
+        )
+        progressFraction = 0
+        progressText = "等待输出目录"
+        alert = AppAlert(title: title, message: message)
+        return false
+    }
+
     private func reportMissingRequiredExternalTool() {
         let toolName = requiresRARCommand ? RARCommandResolver.toolName : ZstdCommandResolver.toolName
         let title = requiresRARCommand ? "RAR 压缩不可用" : "TAR.ZST 压缩不可用"
@@ -1120,6 +1151,25 @@ final class EasyZipAppModel: ObservableObject {
 
         progressFraction = 0
         progressText = "空闲"
+    }
+
+    private func normalizeSelectedItemsForCurrentMode() {
+        guard !selectedItems.isEmpty else {
+            selectedArchiveEntryPaths.removeAll()
+            return
+        }
+
+        let filteredItems = ArchiveInputFilter.filter(selectedItems, for: mode).acceptedFileURLs
+        let normalizedItems = FileURLListNormalizer.uniqueStandardizedFileURLs(filteredItems)
+
+        guard normalizedItems != selectedItems else {
+            return
+        }
+
+        selectedItems = normalizedItems
+        archiveEntries.removeAll()
+        selectedArchiveEntryPaths.removeAll()
+        updateDefaultArchiveName()
     }
 
     private func clearExtractionPassword() {

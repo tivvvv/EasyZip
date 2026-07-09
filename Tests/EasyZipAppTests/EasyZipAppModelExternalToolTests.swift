@@ -32,6 +32,7 @@ final class EasyZipAppModelExternalToolTests: XCTestCase {
 
         model.selectedFormat = .tarZstd
         model.selectedItems = [URL(fileURLWithPath: "/tmp/source")]
+        model.outputDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
 
         model.startOperation()
 

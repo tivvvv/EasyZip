@@ -110,7 +110,7 @@ struct EasyZipSettingsView: View {
     }
 
     private var outputDirectoryText: String {
-        settings.defaultOutputDirectory?.displayPath ?? "跟随源文件位置"
+        settings.defaultOutputDirectory?.displayPath ?? "每次任务时选择"
     }
 
     private func chooseDefaultOutputDirectory() {

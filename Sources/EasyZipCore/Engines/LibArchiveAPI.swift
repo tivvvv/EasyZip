@@ -179,6 +179,12 @@ func archive_entry_copy_pathname(
     _ pathname: UnsafePointer<CChar>?
 )
 
+@_silgen_name("archive_entry_update_pathname_utf8")
+func archive_entry_update_pathname_utf8(
+    _ entry: OpaquePointer?,
+    _ pathname: UnsafePointer<CChar>?
+) -> Int32
+
 @_silgen_name("archive_entry_symlink_utf8")
 func archive_entry_symlink_utf8(_ entry: OpaquePointer?) -> UnsafePointer<CChar>?
 
@@ -205,6 +211,12 @@ func archive_entry_copy_symlink(
     _ entry: OpaquePointer?,
     _ symlink: UnsafePointer<CChar>?
 )
+
+@_silgen_name("archive_entry_update_symlink_utf8")
+func archive_entry_update_symlink_utf8(
+    _ entry: OpaquePointer?,
+    _ symlink: UnsafePointer<CChar>?
+) -> Int32
 
 @_silgen_name("archive_entry_copy_hardlink")
 func archive_entry_copy_hardlink(

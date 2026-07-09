@@ -72,6 +72,21 @@ final class EasyZipAppModelInputFilterTests: XCTestCase {
         XCTAssertEqual(model.alert?.message, "请选择支持的归档文件后重试")
     }
 
+    func testModeSwitchRemovesSelectionThatCurrentModeCannotHandle() {
+        let model = makeModel()
+        let folderURL = URL(fileURLWithPath: "/tmp/source", isDirectory: true)
+
+        model.mode = .compress
+        model.addFileURLs([folderURL])
+        model.selectedArchiveEntryPaths = ["source/file.txt"]
+        model.mode = .extract
+
+        XCTAssertTrue(model.selectedItems.isEmpty)
+        XCTAssertTrue(model.selectedArchiveEntryPaths.isEmpty)
+        XCTAssertEqual(model.previewState, "未选择归档")
+        XCTAssertFalse(model.canRun)
+    }
+
     private func makeModel() -> EasyZipAppModel {
         EasyZipAppModel(
             settings: EasyZipAppSettings(

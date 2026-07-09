@@ -447,7 +447,7 @@ final class EasyZipDiagnosticsModel: ObservableObject {
         return EasyZipDiagnosticItem(
             id: .defaultOutputDirectory,
             title: "默认输出目录",
-            detail: "未指定默认输出目录, 任务会跟随源文件位置.",
+            detail: "未指定默认输出目录, 压缩前需要选择输出目录.",
             status: .normal
         )
     }

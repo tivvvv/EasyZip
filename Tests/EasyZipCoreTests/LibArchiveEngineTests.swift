@@ -10,6 +10,45 @@ final class LibArchiveEngineTests: XCTestCase {
         try await assertRoundTrip(format: .zip, archiveName: "sample.zip")
     }
 
+    func testZipArchiveStoresUnicodeEntryNamesAsUTF8() async throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+
+        let sourceURL = workspaceURL.appendingPathComponent("用户资料", isDirectory: true)
+        let nestedURL = sourceURL.appendingPathComponent("子目录", isDirectory: true)
+        let archiveURL = workspaceURL.appendingPathComponent("unicode.zip")
+        try fileManager.createDirectory(at: nestedURL, withIntermediateDirectories: true)
+        try "中文内容".write(
+            to: nestedURL.appendingPathComponent("中文 文件.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try await LibArchiveEngine().create(
+            CompressionRequest(
+                sourceURLs: [sourceURL],
+                destinationURL: archiveURL,
+                format: .zip
+            )
+        )
+
+        let entries = try zipCentralDirectoryEntries(in: archiveURL)
+        let entryNames = entries.compactMap { String(data: $0.nameData, encoding: .utf8) }
+        let unicodeEntries = entries.filter { entry in
+            guard let name = String(data: entry.nameData, encoding: .utf8) else {
+                return false
+            }
+
+            return containsNonASCII(name)
+        }
+
+        XCTAssertTrue(entryNames.contains("用户资料/子目录/中文 文件.txt"))
+        XCTAssertFalse(unicodeEntries.isEmpty)
+        XCTAssertTrue(unicodeEntries.allSatisfy { $0.generalPurposeBitFlag & 0x0800 != 0 })
+    }
+
     func testCreatesListsAndExtractsSevenZipArchive() async throws {
         try await assertRoundTrip(format: .sevenZip, archiveName: "sample.7z")
     }
@@ -1246,6 +1285,11 @@ private extension LibArchiveEngineTests {
         }
     }
 
+    struct ZipCentralDirectoryEntry {
+        let generalPurposeBitFlag: UInt16
+        let nameData: Data
+    }
+
     func assertRoundTrip(format: ArchiveFormat, archiveName: String) async throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -1495,6 +1539,46 @@ private extension LibArchiveEngineTests {
         XCTAssertEqual(modifiedAt.timeIntervalSince1970, fixtureModificationDate.timeIntervalSince1970, accuracy: 1)
     }
 
+    func zipCentralDirectoryEntries(in archiveURL: URL) throws -> [ZipCentralDirectoryEntry] {
+        let data = try Data(contentsOf: archiveURL)
+        var entries: [ZipCentralDirectoryEntry] = []
+        var offset = 0
+
+        while offset + 46 <= data.count {
+            guard data.littleEndianUInt32(at: offset) == 0x02014b50 else {
+                offset += 1
+                continue
+            }
+
+            let generalPurposeBitFlag = data.littleEndianUInt16(at: offset + 8)
+            let nameLength = Int(data.littleEndianUInt16(at: offset + 28))
+            let extraLength = Int(data.littleEndianUInt16(at: offset + 30))
+            let commentLength = Int(data.littleEndianUInt16(at: offset + 32))
+            let nameStart = offset + 46
+            let nameEnd = nameStart + nameLength
+            let nextOffset = nameEnd + extraLength + commentLength
+
+            guard nameEnd <= data.count,
+                  nextOffset <= data.count else {
+                throw ArchiveError.engineFailure(engine: "test", message: "Invalid zip central directory.")
+            }
+
+            entries.append(
+                ZipCentralDirectoryEntry(
+                    generalPurposeBitFlag: generalPurposeBitFlag,
+                    nameData: data.subdata(in: nameStart..<nameEnd)
+                )
+            )
+            offset = nextOffset
+        }
+
+        return entries
+    }
+
+    func containsNonASCII(_ value: String) -> Bool {
+        value.unicodeScalars.contains { $0.value > 127 }
+    }
+
     func makeRawTarArchive(at archiveURL: URL, entries: [RawArchiveEntry]) throws {
         guard let archive = archive_write_new() else {
             throw ArchiveError.engineFailure(engine: "test", message: "Failed to allocate archive writer.")
@@ -1615,6 +1699,16 @@ private extension LibArchiveEngineTests {
 private extension Set where Element == String {
     func containsDirectory(_ path: String) -> Bool {
         contains(path) || contains(path + "/")
+    }
+}
+
+private extension Data {
+    func littleEndianUInt16(at offset: Int) -> UInt16 {
+        UInt16(self[offset]) | UInt16(self[offset + 1]) << 8
+    }
+
+    func littleEndianUInt32(at offset: Int) -> UInt32 {
+        UInt32(littleEndianUInt16(at: offset)) | UInt32(littleEndianUInt16(at: offset + 2)) << 16
     }
 }
 

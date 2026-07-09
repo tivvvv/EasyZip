@@ -98,6 +98,10 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         showSettings()
     }
 
+    func openDiagnosticsFromSettingsScene() {
+        showDiagnostics()
+    }
+
     @objc private func chooseItemsForCompression() {
         closeStatusPanel()
         chooseItems(mode: .compress)

@@ -6,7 +6,14 @@ struct EasyZipApp: App {
 
     var body: some Scene {
         Settings {
-            EasyZipSettingsView(settings: .shared)
+            EasyZipSettingsView(
+                settings: .shared,
+                openDiagnostics: {
+                    Task { @MainActor in
+                        appDelegate.openDiagnosticsFromSettingsScene()
+                    }
+                }
+            )
         }
     }
 }

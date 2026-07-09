@@ -57,10 +57,17 @@ enum ArchiveTaskRunner {
         for archiveURL in archiveURLs {
             try Task.checkCancellation()
 
+            let selectedEntriesIncludeContainingDirectory = selectedEntriesIncludeContainingDirectory(
+                archiveURL: archiveURL,
+                selectedEntryPaths: selectedEntryPaths
+            )
+            let effectiveShouldCreateContainingDirectory = shouldCreateContainingDirectory
+                && !selectedEntriesIncludeContainingDirectory
             let destinationURL = extractionDestinationURL(
                 archiveURL: archiveURL,
                 outputDirectory: outputDirectory,
                 shouldCreateContainingDirectory: shouldCreateContainingDirectory
+                    || selectedEntriesIncludeContainingDirectory
             )
             destinationURLs.append(destinationURL)
 
@@ -72,7 +79,7 @@ enum ArchiveTaskRunner {
                 ),
                 options: ExtractionOptions(
                     overwritePolicy: overwritePolicy,
-                    shouldCreateContainingDirectory: shouldCreateContainingDirectory,
+                    shouldCreateContainingDirectory: effectiveShouldCreateContainingDirectory,
                     conflictResolver: conflictResolver,
                     selectedEntryPaths: selectedEntryPaths,
                     password: password
@@ -151,6 +158,28 @@ enum ArchiveTaskRunner {
         let directoryName = ArchiveFormat.removingArchiveExtension(from: archiveURL.lastPathComponent)
 
         return directoryName.isEmpty ? "归档内容" : directoryName
+    }
+
+    private static func selectedEntriesIncludeContainingDirectory(
+        archiveURL: URL,
+        selectedEntryPaths: Set<String>
+    ) -> Bool {
+        guard !selectedEntryPaths.isEmpty,
+              !isSingleFileCompressionArchive(archiveURL) else {
+            return false
+        }
+
+        let directoryName = extractionContainingDirectoryName(for: archiveURL)
+        let selectedTopLevelNames = Set(selectedEntryPaths.compactMap(topLevelPathComponent))
+
+        return selectedTopLevelNames == [directoryName]
+    }
+
+    private static func topLevelPathComponent(in path: String) -> String? {
+        path
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .first
+            .map(String.init)
     }
 
     private static func baseDestinationURL(

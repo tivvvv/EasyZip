@@ -563,6 +563,7 @@ private extension LibArchiveEngine {
                 archive: archive,
                 operation: "enable zip writer"
             )
+            try setZIPHeaderCharset(archive)
             try setFormatCompressionLevel(archive, options: request.options)
             try configureZIPEncryption(archive, options: request.options)
         case .sevenZip:
@@ -638,6 +639,20 @@ private extension LibArchiveEngine {
             )
         }
         try setZIPEncryptionType(archive)
+    }
+
+    func setZIPHeaderCharset(_ archive: OpaquePointer) throws {
+        try "zip".withCString { module in
+            try "hdrcharset".withCString { option in
+                try "UTF-8".withCString { value in
+                    try require(
+                        archive_write_set_format_option(archive, module, option, value),
+                        archive: archive,
+                        operation: "set zip header charset"
+                    )
+                }
+            }
+        }
     }
 
     func setZIPEncryptionType(_ archive: OpaquePointer) throws {
@@ -1541,8 +1556,14 @@ private extension LibArchiveEngine {
         for sourceItem: SourceItem,
         options: CompressionOptions
     ) throws {
-        sourceItem.archivePath.withCString { path in
-            archive_entry_copy_pathname(entry, path)
+        let pathnameUpdated = sourceItem.archivePath.withCString { path in
+            archive_entry_update_pathname_utf8(entry, path)
+        }
+        guard pathnameUpdated != 0 else {
+            throw ArchiveError.engineFailure(
+                engine: identifier,
+                message: "Failed to encode archive entry path as UTF-8."
+            )
         }
 
         let permissions = UInt32(
@@ -1562,8 +1583,14 @@ private extension LibArchiveEngine {
         case .typeSymbolicLink:
             archive_entry_set_filetype(entry, LibArchiveFileType.symbolicLink)
             archive_entry_set_size(entry, 0)
-            try linkDestination(for: sourceItem.fileURL).withCString { target in
-                archive_entry_copy_symlink(entry, target)
+            let symlinkUpdated = try linkDestination(for: sourceItem.fileURL).withCString { target in
+                archive_entry_update_symlink_utf8(entry, target)
+            }
+            guard symlinkUpdated != 0 else {
+                throw ArchiveError.engineFailure(
+                    engine: identifier,
+                    message: "Failed to encode archive entry symlink as UTF-8."
+                )
             }
         case .typeRegular:
             archive_entry_set_filetype(entry, LibArchiveFileType.regular)
