@@ -31,6 +31,7 @@ final class EasyZipAppSettings: ObservableObject {
     @Published var defaultOutputDirectory: URL? {
         didSet {
             saveDefaultOutputDirectory()
+            refreshDefaultOutputDirectoryAccess()
         }
     }
     @Published var defaultCompressionFormat: ArchiveFormat {
@@ -66,6 +67,7 @@ final class EasyZipAppSettings: ObservableObject {
     private let fileManager: FileManager
     private let launchAtLoginController: any LaunchAtLoginControlling
     private let notificationAuthorizationRequester: () -> Void
+    private var securityScopedDefaultOutputDirectory: URL?
 
     init(
         userDefaults: UserDefaults = .standard,
@@ -91,6 +93,7 @@ final class EasyZipAppSettings: ObservableObject {
             defaultValue: true
         )
         launchAtLoginEnabled = launchAtLoginController.isEnabled
+        refreshDefaultOutputDirectoryAccess()
     }
 
     var effectiveDefaultOutputDirectory: URL? {
@@ -142,34 +145,96 @@ final class EasyZipAppSettings: ObservableObject {
         setLaunchAtLoginEnabled(false)
     }
 
+    func stopAccessingDefaultOutputDirectory() {
+        securityScopedDefaultOutputDirectory?.stopAccessingSecurityScopedResource()
+        securityScopedDefaultOutputDirectory = nil
+    }
+
     private var defaultOutputDirectoryIsAvailable: Bool {
         guard let defaultOutputDirectory else {
             return true
         }
 
         var isDirectory = ObjCBool(false)
-        return fileManager.fileExists(
+        let directoryExists = fileManager.fileExists(
             atPath: defaultOutputDirectory.path,
             isDirectory: &isDirectory
         ) && isDirectory.boolValue
+
+        guard directoryExists else {
+            return false
+        }
+
+        return !requiresSecurityScopedFileAccess
+            || securityScopedDefaultOutputDirectory != nil
+    }
+
+    private var requiresSecurityScopedFileAccess: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
     }
 
     private func saveDefaultOutputDirectory() {
         guard let defaultOutputDirectory else {
             userDefaults.removeObject(forKey: Keys.defaultOutputDirectoryPath)
+            userDefaults.removeObject(forKey: Keys.defaultOutputDirectoryBookmark)
             return
         }
 
         userDefaults.set(defaultOutputDirectory.path, forKey: Keys.defaultOutputDirectoryPath)
+
+        do {
+            let bookmark = try defaultOutputDirectory.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            userDefaults.set(bookmark, forKey: Keys.defaultOutputDirectoryBookmark)
+        } catch {
+            userDefaults.removeObject(forKey: Keys.defaultOutputDirectoryBookmark)
+        }
     }
 
     private static func loadDefaultOutputDirectory(from userDefaults: UserDefaults) -> URL? {
+        if let bookmark = userDefaults.data(forKey: Keys.defaultOutputDirectoryBookmark) {
+            var isStale = false
+            if let url = try? URL(
+                resolvingBookmarkData: bookmark,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                if isStale,
+                   let refreshedBookmark = try? url.bookmarkData(
+                       options: .withSecurityScope,
+                       includingResourceValuesForKeys: nil,
+                       relativeTo: nil
+                   ) {
+                    userDefaults.set(
+                        refreshedBookmark,
+                        forKey: Keys.defaultOutputDirectoryBookmark
+                    )
+                }
+                return url
+            }
+        }
+
         guard let path = userDefaults.string(forKey: Keys.defaultOutputDirectoryPath),
               !path.isEmpty else {
             return nil
         }
 
         return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private func refreshDefaultOutputDirectoryAccess() {
+        stopAccessingDefaultOutputDirectory()
+
+        guard let defaultOutputDirectory,
+              defaultOutputDirectory.startAccessingSecurityScopedResource() else {
+            return
+        }
+
+        securityScopedDefaultOutputDirectory = defaultOutputDirectory
     }
 
     private static func loadDefaultCompressionFormat(from userDefaults: UserDefaults) -> ArchiveFormat {
@@ -203,6 +268,7 @@ final class EasyZipAppSettings: ObservableObject {
 
 private enum Keys {
     static let defaultOutputDirectoryPath = "easyzip.settings.defaultOutputDirectoryPath"
+    static let defaultOutputDirectoryBookmark = "easyzip.settings.defaultOutputDirectoryBookmark"
     static let defaultCompressionFormat = "easyzip.settings.defaultCompressionFormat"
     static let defaultOverwritePolicy = "easyzip.settings.defaultOverwritePolicy"
     static let taskCompletionNotificationEnabled = "easyzip.settings.taskCompletionNotificationEnabled"

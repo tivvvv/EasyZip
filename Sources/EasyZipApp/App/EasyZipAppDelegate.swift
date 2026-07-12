@@ -40,12 +40,22 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls {
+        let fileURLs = urls.filter(\.isFileURL)
+
+        if !fileURLs.isEmpty {
+            FinderActionHandoffStore.retainSecurityScopedAccess(to: fileURLs)
+            let action = handoffStore.readAndRemoveAction(matching: fileURLs)
+            let mode = workspaceMode(from: action) ?? inferredWorkspaceMode(for: fileURLs)
+            showWorkspace(mode: mode, fileURLs: fileURLs)
+        }
+
+        for url in urls where !url.isFileURL {
             handleIncomingURL(url)
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        appSettings.stopAccessingDefaultOutputDirectory()
         FinderActionHandoffStore.stopAccessingSecurityScopedResources()
     }
 
@@ -68,13 +78,8 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             return
         }
 
-        if window === workspaceWindow {
-            workspaceWindow = nil
-        } else if window === onboardingWindow {
-            onboardingWindow = nil
+        if window === onboardingWindow {
             onboardingState.completeFirstLaunchGuide()
-        } else if window === diagnosticsWindow {
-            diagnosticsWindow = nil
         }
     }
 
@@ -178,6 +183,22 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         .sink { [weak self] _, _, _, _ in
             Task { @MainActor in
                 self?.updateStatusItem()
+            }
+        }
+        .store(in: &cancellables)
+
+        Publishers.CombineLatest(
+            workspaceModel.$passwordPrompt,
+            workspaceModel.$conflictPrompt
+        )
+        .dropFirst()
+        .sink { [weak self] passwordPrompt, conflictPrompt in
+            guard passwordPrompt != nil || conflictPrompt != nil else {
+                return
+            }
+
+            Task { @MainActor in
+                self?.showWorkspace()
             }
         }
         .store(in: &cancellables)
@@ -394,6 +415,17 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             return
         }
 
+        if queryItems.contains(where: {
+            $0.name == "error" && $0.value == "handoff-unavailable"
+        }) {
+            showWorkspace()
+            workspaceModel.alert = AppAlert(
+                title: "无法传递 Finder 选择",
+                message: "选择项目过多或共享容器不可用, 请从工作台重新选择"
+            )
+            return
+        }
+
         let fileURLs: [URL]
 
         do {
@@ -422,6 +454,16 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             return try handoffStore.readAndRemove(id: handoffId)
         }
 
+        let bookmarkValues = queryItems
+            .filter { $0.name == FinderActionHandoffStore.bookmarkQueryItemName }
+            .compactMap(\.value)
+
+        if let bookmarkURLs = try FinderActionHandoffStore.fileURLs(
+            fromBase64SecurityScopedBookmarks: bookmarkValues
+        ) {
+            return bookmarkURLs
+        }
+
         return queryItems
             .filter { $0.name == "item" }
             .compactMap(\.value)
@@ -440,12 +482,22 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
     }
 
+    private func inferredWorkspaceMode(for fileURLs: [URL]) -> WorkspaceMode {
+        fileURLs.allSatisfy(ArchiveFileNameMatcher.isSupportedArchiveFileURL)
+            ? .extract
+            : .compress
+    }
+
     private func showWorkspace(
         mode: WorkspaceMode? = nil,
         fileURLs: [URL] = []
     ) {
-        if let mode {
-            workspaceModel.prepareExternalSelection(mode: mode, fileURLs: fileURLs)
+        if let mode,
+           workspaceModel.prepareExternalSelection(
+               mode: mode,
+               fileURLs: fileURLs
+           ) == .handledInBackground {
+            return
         }
 
         if workspaceWindow == nil {
@@ -462,18 +514,13 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             window.title = "易压缩"
             window.titlebarAppearsTransparent = true
             window.contentViewController = hostingController
+            window.isReleasedWhenClosed = false
             window.delegate = self
             window.center()
             workspaceWindow = window
         }
 
-        if workspaceWindow?.isMiniaturized == true {
-            workspaceWindow?.deminiaturize(nil)
-        }
-
-        workspaceWindow?.makeKeyAndOrderFront(nil)
-        workspaceWindow?.orderFrontRegardless()
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        presentWindow(workspaceWindow)
     }
 
     private func showOnboardingIfNeeded() {
@@ -524,13 +571,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             onboardingWindow = window
         }
 
-        if onboardingWindow?.isMiniaturized == true {
-            onboardingWindow?.deminiaturize(nil)
-        }
-
-        onboardingWindow?.makeKeyAndOrderFront(nil)
-        onboardingWindow?.orderFrontRegardless()
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        presentWindow(onboardingWindow)
     }
 
     private func completeOnboarding() {
@@ -540,7 +581,6 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             return
         }
 
-        onboardingWindow = nil
         window.close()
     }
 
@@ -577,13 +617,7 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             diagnosticsWindow = window
         }
 
-        if diagnosticsWindow?.isMiniaturized == true {
-            diagnosticsWindow?.deminiaturize(nil)
-        }
-
-        diagnosticsWindow?.makeKeyAndOrderFront(nil)
-        diagnosticsWindow?.orderFrontRegardless()
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        presentWindow(diagnosticsWindow)
     }
 
     private func performDiagnosticAction(_ action: EasyZipDiagnosticAction) {
@@ -659,13 +693,20 @@ final class EasyZipAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             settingsWindow = window
         }
 
-        if settingsWindow?.isMiniaturized == true {
-            settingsWindow?.deminiaturize(nil)
+        presentWindow(settingsWindow)
+    }
+
+    private func presentWindow(_ window: NSWindow?) {
+        guard let window else {
+            return
         }
 
-        settingsWindow?.makeKeyAndOrderFront(nil)
-        settingsWindow?.orderFrontRegardless()
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+
         NSApplication.shared.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     private func fileURLs(from pasteboard: NSPasteboard) -> [URL] {

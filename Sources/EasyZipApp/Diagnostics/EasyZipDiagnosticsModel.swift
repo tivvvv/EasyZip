@@ -329,7 +329,7 @@ final class EasyZipDiagnosticsModel: ObservableObject {
             return EasyZipDiagnosticItem(
                 id: .appGroup,
                 title: "App Group",
-                detail: "共享容器不可用, Finder handoff 将使用开发环境回退目录.",
+                detail: "共享容器不可用, 少量 Finder 选择将通过安全书签回退.",
                 status: .needsAction
             )
         case .unsupported:

@@ -143,6 +143,7 @@ EasyZipCore
 - `RecentArchiveStore` 使用 `UserDefaults` 保存最近任务和可固定的最近输出目录.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存默认输出目录, 默认压缩格式和默认冲突策略.
 - `EasyZipAppSettings` 使用 `UserDefaults` 保存通知开关和外层目录开关.
+- `EasyZipAppSettings` 使用 security scoped bookmark 持久化默认输出目录, 并兼容旧版路径数据.
 - `EasyZipAppSettings` 会检测默认输出目录可用性, 失效时工作台提示重新选择输出目录.
 - `EasyZipAppSettings` 通过 `SMAppService` 控制主应用开机启动.
 - 工作台监听设置变更并展示轻量结果提示, 避免设置页和任务页状态脱节.
@@ -150,15 +151,19 @@ EasyZipCore
 - 菜单栏状态面板和应用菜单可打开设置页.
 - AppDelegate 统一处理应用退出, 运行中任务会先确认并取消后再退出.
 - `TaskCompletionNotifier` 在设置允许时发送 macOS 系统通知.
-- Finder Sync extension 打包在 `Contents/PlugIns`, 通过 App Group handoff 文件把 Finder 选择传回主 app.
-- `FinderActionHandoffStore` 会优先使用 App Group 共享容器, 共享容器不可用时回退开发环境临时目录.
+- Finder Sync extension 打包在 `Contents/PlugIns`, 通过 LaunchServices 把 Finder 选择作为文件打开请求交给主 app, 由系统传递沙盒文件访问授权.
+- `FinderActionHandoffStore` 通过 App Group 共享容器保存待处理文件和动作模式, 主 app 收到文件后按标准化路径匹配并消费动作.
+- LaunchServices 调用失败时回退 bookmark URL. 共享容器不可用时, 少量选择通过 URL security scoped bookmark 回退.
 - Finder handoff payload 会为真实文件写入 security scoped bookmark, 主 App 读取后保留访问权限直到应用退出.
-- `easyzip://` URL scheme 只传递操作模式和 handoff id, 旧 `item` query 入口保留兼容.
+- `easyzip://` URL scheme 在回退流程中传递操作模式和 security scoped bookmark. bookmark 不完整或超出 URL 长度限制时会打开工作台提示重新选择, handoff id 和旧 `item` query 入口保留兼容.
 - Finder handoff 使用 0700 目录权限和 0600 文件权限, 并限制单次文件数量和 payload 大小.
 - App 启动时会清理过期 Finder handoff 文件.
-- `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择带入工作台.
-- 工作台添加, Finder 和 Services 后台唤起会走统一外部选择策略, 空闲时同模式合并, 不同模式替换.
-- 任务运行中再次选择文件会生成等待队列项, 当前任务完成或密码等待取消后由 `EasyZipAppModel` 调度下一个任务.
+- `NSServices` 声明 `使用易压缩进行压缩` 和 `使用易压缩进行解压`, 服务入口会把 Finder 选择传入统一任务队列.
+- Finder 和 Services 后台唤起会优先使用默认输出目录或工作台当前输出目录创建独立任务, 条件完整时无需打开工作台.
+- 外部任务缺少输出目录时会保持等待状态并打开工作台, 用户选择目录后继续同一队列任务.
+- 后台任务需要归档密码或冲突决策时会自动打开工作台继续交互.
+- 后台任务成功或失败后会按照通知设置发送系统通知.
+- 任务运行中再次从 Finder 或 Services 选择文件会生成等待队列项, 当前任务完成后由 `EasyZipAppModel` 调度下一个任务.
 - 进度回调使用字节数作为 unit count, 列表读取仍按条目返回.
 - 加密归档解压支持通过 `ExtractionOptions.password` 传入密码, UI 侧会在缺少密码或密码错误时提示输入.
 - ZIP 加密压缩支持通过 UI 输入密码和确认密码, Core 会拒绝非 ZIP 格式的加密压缩请求.

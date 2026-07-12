@@ -7,9 +7,18 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
         case extract
     }
 
-    private static let maximumLegacyURLLength = 6_000
+    private static let maximumFallbackURLLength = 6_000
 
-    private let handoffStore = FinderActionHandoffStore()
+    private let handoffStore: FinderActionHandoffStore? = {
+        let groupIdentifier = FinderActionHandoffStore.configuredAppGroupIdentifier()
+        guard let directoryURL = FinderActionHandoffStore.appGroupDirectoryURL(
+            groupIdentifier: groupIdentifier
+        ) else {
+            return nil
+        }
+
+        return FinderActionHandoffStore(directoryURL: directoryURL)
+    }()
 
     override init() {
         super.init()
@@ -103,49 +112,93 @@ final class EasyZipFinderSyncExtension: FIFinderSync {
 
     private func openMainApp(mode: ActionMode) {
         let fileURLs = selectedFileURLs()
-        guard !fileURLs.isEmpty,
-              let url = actionURL(mode: mode, fileURLs: fileURLs) else {
+        guard !fileURLs.isEmpty else {
             return
         }
 
-        NSWorkspace.shared.open(url)
+        guard let handoffStore else {
+            openFallbackURL(mode: mode, fileURLs: fileURLs)
+            return
+        }
+
+        do {
+            _ = try handoffStore.write(fileURLs: fileURLs, action: mode.rawValue)
+        } catch {
+            openFallbackURL(mode: mode, fileURLs: fileURLs)
+            return
+        }
+
+        guard let appURL = containingAppURL() else {
+            openFallbackURL(mode: mode, fileURLs: fileURLs)
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.open(
+            fileURLs,
+            withApplicationAt: appURL,
+            configuration: configuration
+        ) { [weak self] _, error in
+            guard error != nil else {
+                return
+            }
+
+            self?.openFallbackURL(mode: mode, fileURLs: fileURLs)
+        }
     }
 
-    private func actionURL(mode: ActionMode, fileURLs: [URL]) -> URL? {
-        if let handoffURL = handoffActionURL(mode: mode, fileURLs: fileURLs) {
-            return handoffURL
+    private func openFallbackURL(mode: ActionMode, fileURLs: [URL]) {
+        if let fallbackURL = fallbackActionURL(mode: mode, fileURLs: fileURLs),
+           fallbackURL.absoluteString.count <= Self.maximumFallbackURLLength {
+            NSWorkspace.shared.open(fallbackURL)
+            return
         }
 
-        guard let legacyURL = legacyActionURL(mode: mode, fileURLs: fileURLs),
-              legacyURL.absoluteString.count <= Self.maximumLegacyURLLength else {
-            return nil
+        if let failureURL = handoffFailureURL(mode: mode) {
+            NSWorkspace.shared.open(failureURL)
         }
-
-        return legacyURL
     }
 
-    private func handoffActionURL(mode: ActionMode, fileURLs: [URL]) -> URL? {
-        guard let handoffId = try? handoffStore.write(fileURLs: fileURLs) else {
-            return nil
+    private func containingAppURL() -> URL? {
+        var candidateURL = Bundle.main.bundleURL
+
+        while candidateURL.pathExtension != "app" && candidateURL.path != "/" {
+            candidateURL.deleteLastPathComponent()
         }
 
+        return candidateURL.pathExtension == "app" ? candidateURL : nil
+    }
+
+    private func fallbackActionURL(mode: ActionMode, fileURLs: [URL]) -> URL? {
+        var components = URLComponents()
+        components.scheme = "easyzip"
+        components.host = "finder-action"
+        guard let bookmarks = FinderActionHandoffStore.securityScopedBookmarks(for: fileURLs),
+              bookmarks.count == fileURLs.count else {
+            return nil
+        }
+        let bookmarkItems = bookmarks.map { bookmark in
+            URLQueryItem(
+                name: FinderActionHandoffStore.bookmarkQueryItemName,
+                value: bookmark.base64EncodedString()
+            )
+        }
+        components.queryItems = [URLQueryItem(name: "mode", value: mode.rawValue)]
+            + bookmarkItems
+            + fileURLs.map { URLQueryItem(name: "item", value: $0.absoluteString) }
+
+        return components.url
+    }
+
+    private func handoffFailureURL(mode: ActionMode) -> URL? {
         var components = URLComponents()
         components.scheme = "easyzip"
         components.host = "finder-action"
         components.queryItems = [
             URLQueryItem(name: "mode", value: mode.rawValue),
-            URLQueryItem(name: FinderActionHandoffStore.handoffQueryItemName, value: handoffId)
+            URLQueryItem(name: "error", value: "handoff-unavailable")
         ]
-
-        return components.url
-    }
-
-    private func legacyActionURL(mode: ActionMode, fileURLs: [URL]) -> URL? {
-        var components = URLComponents()
-        components.scheme = "easyzip"
-        components.host = "finder-action"
-        components.queryItems = [URLQueryItem(name: "mode", value: mode.rawValue)]
-            + fileURLs.map { URLQueryItem(name: "item", value: $0.absoluteString) }
 
         return components.url
     }

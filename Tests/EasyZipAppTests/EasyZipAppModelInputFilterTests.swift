@@ -33,8 +33,12 @@ final class EasyZipAppModelInputFilterTests: XCTestCase {
         let unsupportedURL = URL(fileURLWithPath: "/tmp/document.txt")
 
         model.isRunning = true
-        model.prepareExternalSelection(mode: .extract, fileURLs: [archiveURL, unsupportedURL])
+        let disposition = model.prepareExternalSelection(
+            mode: .extract,
+            fileURLs: [archiveURL, unsupportedURL]
+        )
 
+        XCTAssertEqual(disposition, .requiresWorkspace)
         XCTAssertEqual(model.taskQueue.count, 1)
         XCTAssertEqual(model.taskQueue.first?.status, .waiting)
         XCTAssertEqual(model.taskQueue.first?.snapshot.mode, .extract)
@@ -42,7 +46,7 @@ final class EasyZipAppModelInputFilterTests: XCTestCase {
         XCTAssertEqual(model.alert?.title, "已加入任务队列")
         XCTAssertEqual(
             model.alert?.message,
-            "当前任务完成后自动执行 1 项解压文件, 已忽略 1 个不支持解压的文件"
+            "当前任务完成后自动执行 1 项解压文件, 已忽略 1 个不支持解压的文件, 执行前需要选择输出目录"
         )
     }
 
@@ -52,20 +56,32 @@ final class EasyZipAppModelInputFilterTests: XCTestCase {
         let unsupportedURL = URL(fileURLWithPath: "/tmp/document.txt")
 
         model.mode = .compress
-        model.prepareExternalSelection(mode: .extract, fileURLs: [archiveURL, unsupportedURL])
+        let disposition = model.prepareExternalSelection(
+            mode: .extract,
+            fileURLs: [archiveURL, unsupportedURL]
+        )
 
+        XCTAssertEqual(disposition, .requiresWorkspace)
         XCTAssertEqual(model.mode, .extract)
         XCTAssertEqual(model.selectedItems.map(\.path), [archiveURL.standardizedFileURL.path])
-        XCTAssertEqual(model.alert?.title, "已忽略不支持的文件")
-        XCTAssertEqual(model.alert?.message, "已忽略 1 个不支持解压的文件")
+        XCTAssertEqual(model.taskQueue.first?.status, .waiting)
+        XCTAssertEqual(model.alert?.title, "请选择输出目录")
+        XCTAssertEqual(
+            model.alert?.message,
+            "解压前请先选择一个可写入的输出目录, 已忽略 1 个不支持解压的文件"
+        )
     }
 
     func testExternalExtractionSelectionRejectsUnsupportedFilesUsingRequestedMode() {
         let model = makeModel()
 
         model.mode = .compress
-        model.prepareExternalSelection(mode: .extract, fileURLs: [URL(fileURLWithPath: "/tmp/document.txt")])
+        let disposition = model.prepareExternalSelection(
+            mode: .extract,
+            fileURLs: [URL(fileURLWithPath: "/tmp/document.txt")]
+        )
 
+        XCTAssertEqual(disposition, .requiresWorkspace)
         XCTAssertEqual(model.mode, .compress)
         XCTAssertTrue(model.selectedItems.isEmpty)
         XCTAssertEqual(model.alert?.title, "没有可处理的文件")

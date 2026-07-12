@@ -22,12 +22,14 @@ final class EasyZipAppModelExternalToolTests: XCTestCase {
     }
 
     func testBlocksTarZstdCompressionWhenZstdCommandIsMissing() {
+        var notifiedResults: [TaskResult] = []
         let model = makeModel(
             zstdCommandResolver: ZstdCommandResolver(
                 executableURL: URL(fileURLWithPath: "/tmp/missing-zstd"),
                 candidatePaths: [],
                 pathValue: ""
-            )
+            ),
+            taskResultNotifier: { notifiedResults.append($0) }
         )
 
         model.selectedFormat = .tarZstd
@@ -40,10 +42,13 @@ final class EasyZipAppModelExternalToolTests: XCTestCase {
         XCTAssertEqual(model.taskResult?.title, "TAR.ZST 压缩不可用")
         XCTAssertEqual(model.progressText, "等待外部工具")
         XCTAssertEqual(model.alert?.title, "TAR.ZST 压缩不可用")
+        XCTAssertEqual(model.taskQueue.first?.status, .failed)
+        XCTAssertEqual(notifiedResults.map(\.title), ["TAR.ZST 压缩不可用"])
     }
 
     private func makeModel(
-        zstdCommandResolver: ZstdCommandResolver
+        zstdCommandResolver: ZstdCommandResolver,
+        taskResultNotifier: @escaping (TaskResult) -> Void = { _ in }
     ) -> EasyZipAppModel {
         EasyZipAppModel(
             settings: EasyZipAppSettings(
@@ -51,7 +56,8 @@ final class EasyZipAppModelExternalToolTests: XCTestCase {
                 launchAtLoginController: ExternalToolLaunchAtLoginController(isEnabled: false),
                 notificationAuthorizationRequester: {}
             ),
-            zstdCommandResolver: zstdCommandResolver
+            zstdCommandResolver: zstdCommandResolver,
+            taskResultNotifier: taskResultNotifier
         )
     }
 

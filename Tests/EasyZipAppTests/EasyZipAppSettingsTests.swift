@@ -108,6 +108,39 @@ final class EasyZipAppSettingsTests: XCTestCase {
         XCTAssertNil(settings.defaultOutputDirectoryWarning)
     }
 
+    func testRestoresDefaultOutputDirectoryFromSecurityScopedBookmark() throws {
+        let defaults = makeUserDefaults()
+        let outputURL = try makeTemporaryDirectory()
+        let settings = EasyZipAppSettings(
+            userDefaults: defaults,
+            launchAtLoginController: StubLaunchAtLoginController(isEnabled: false),
+            notificationAuthorizationRequester: {}
+        )
+
+        settings.defaultOutputDirectory = outputURL
+        XCTAssertNotNil(
+            defaults.data(forKey: "easyzip.settings.defaultOutputDirectoryBookmark")
+        )
+        defaults.removeObject(forKey: "easyzip.settings.defaultOutputDirectoryPath")
+
+        let reloadedSettings = EasyZipAppSettings(
+            userDefaults: defaults,
+            launchAtLoginController: StubLaunchAtLoginController(isEnabled: false),
+            notificationAuthorizationRequester: {}
+        )
+
+        XCTAssertEqual(
+            reloadedSettings.defaultOutputDirectory?.resolvingSymlinksInPath().path,
+            outputURL.resolvingSymlinksInPath().path
+        )
+        XCTAssertEqual(
+            reloadedSettings.effectiveDefaultOutputDirectory?.resolvingSymlinksInPath().path,
+            outputURL.resolvingSymlinksInPath().path
+        )
+        settings.stopAccessingDefaultOutputDirectory()
+        reloadedSettings.stopAccessingDefaultOutputDirectory()
+    }
+
     func testFallsBackWhenStoredDefaultOutputDirectoryIsUnavailable() {
         let defaults = makeUserDefaults()
         let missingURL = FileManager.default.temporaryDirectory

@@ -22,6 +22,80 @@ final class FinderActionHandoffStoreTests: XCTestCase {
         }
     }
 
+    func testReadsAndRemovesMatchingAction() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+
+        let store = FinderActionHandoffStore(directoryURL: workspaceURL)
+        let firstURL = URL(fileURLWithPath: "/tmp/first.txt")
+        let secondURL = URL(fileURLWithPath: "/tmp/second.txt")
+        _ = try store.write(fileURLs: [firstURL], action: "compress")
+        let matchingId = try store.write(fileURLs: [secondURL], action: "extract")
+
+        XCTAssertEqual(store.readAndRemoveAction(matching: [secondURL]), "extract")
+        XCTAssertNil(store.readAndRemoveAction(matching: [secondURL]))
+        XCTAssertThrowsError(try store.readAndRemove(id: matchingId)) { error in
+            XCTAssertEqual(error as? FinderActionHandoffStore.StoreError, .missingHandoff)
+        }
+        XCTAssertEqual(store.readAndRemoveAction(matching: [firstURL]), "compress")
+    }
+
+    func testDoesNotMatchActionForPartialFileSelection() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+
+        let store = FinderActionHandoffStore(directoryURL: workspaceURL)
+        let firstURL = URL(fileURLWithPath: "/tmp/first.txt")
+        let secondURL = URL(fileURLWithPath: "/tmp/second.txt")
+        _ = try store.write(fileURLs: [firstURL, secondURL], action: "compress")
+
+        XCTAssertNil(store.readAndRemoveAction(matching: [firstURL]))
+    }
+
+    func testWritesActionWithoutSecurityScopedBookmarks() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+        let sourceURL = workspaceURL.appendingPathComponent("example.txt")
+        try "example".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let store = FinderActionHandoffStore(directoryURL: workspaceURL)
+
+        let handoffId = try store.write(fileURLs: [sourceURL], action: "compress")
+        let handoffURL = workspaceURL
+            .appendingPathComponent(handoffId)
+            .appendingPathExtension("json")
+        let data = try Data(contentsOf: handoffURL)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+
+        XCTAssertEqual(payload["action"] as? String, "compress")
+        XCTAssertNil(payload["securityScopedBookmarks"])
+    }
+
+    func testDoesNotMatchExpiredAction() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+        var currentDate = Date()
+        let store = FinderActionHandoffStore(
+            directoryURL: workspaceURL,
+            maxAge: 10,
+            now: { currentDate }
+        )
+        let sourceURL = URL(fileURLWithPath: "/tmp/example.txt")
+        _ = try store.write(fileURLs: [sourceURL], action: "compress")
+        currentDate = currentDate.addingTimeInterval(11)
+
+        XCTAssertNil(store.readAndRemoveAction(matching: [sourceURL]))
+    }
+
     func testWritesHandoffWithPrivatePermissions() throws {
         let workspaceURL = try makeWorkspaceURL()
         defer {
@@ -68,6 +142,73 @@ final class FinderActionHandoffStoreTests: XCTestCase {
 
         XCTAssertEqual(bookmarks.count, 1)
         XCTAssertFalse(bookmarks[0].isEmpty)
+    }
+
+    func testCreatesAndResolvesSecurityScopedBookmarks() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            FinderActionHandoffStore.stopAccessingSecurityScopedResources()
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+        let sourceURL = workspaceURL.appendingPathComponent("example.txt")
+        try "example".write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let bookmarks = try XCTUnwrap(
+            FinderActionHandoffStore.securityScopedBookmarks(for: [sourceURL])
+        )
+        let fileURLs = try XCTUnwrap(
+            FinderActionHandoffStore.fileURLs(fromSecurityScopedBookmarks: bookmarks)
+        )
+
+        XCTAssertEqual(fileURLs.map(\.standardizedFileURL), [sourceURL.standardizedFileURL])
+    }
+
+    func testRejectsPartialSecurityScopedBookmarkResolution() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            FinderActionHandoffStore.stopAccessingSecurityScopedResources()
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+        let sourceURL = workspaceURL.appendingPathComponent("example.txt")
+        try "example".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let bookmarks = try XCTUnwrap(
+            FinderActionHandoffStore.securityScopedBookmarks(for: [sourceURL])
+        )
+
+        XCTAssertNil(
+            FinderActionHandoffStore.fileURLs(
+                fromSecurityScopedBookmarks: bookmarks + [Data("invalid".utf8)]
+            )
+        )
+    }
+
+    func testResolvesBase64SecurityScopedBookmarks() throws {
+        let workspaceURL = try makeWorkspaceURL()
+        defer {
+            FinderActionHandoffStore.stopAccessingSecurityScopedResources()
+            TemporaryWorkspace.remove(workspaceURL, fileManager: fileManager)
+        }
+        let sourceURL = workspaceURL.appendingPathComponent("example.txt")
+        try "example".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let bookmarks = try XCTUnwrap(
+            FinderActionHandoffStore.securityScopedBookmarks(for: [sourceURL])
+        )
+
+        let fileURLs = try FinderActionHandoffStore.fileURLs(
+            fromBase64SecurityScopedBookmarks: bookmarks.map { $0.base64EncodedString() }
+        )
+
+        XCTAssertEqual(fileURLs?.map(\.standardizedFileURL), [sourceURL.standardizedFileURL])
+    }
+
+    func testRejectsMalformedBase64SecurityScopedBookmark() {
+        XCTAssertThrowsError(
+            try FinderActionHandoffStore.fileURLs(
+                fromBase64SecurityScopedBookmarks: ["invalid"]
+            )
+        ) { error in
+            XCTAssertEqual(error as? FinderActionHandoffStore.StoreError, .unreadablePayload)
+        }
     }
 
     func testBuildsDirectoryURLFromAppGroupContainer() throws {

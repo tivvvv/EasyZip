@@ -5,6 +5,11 @@ import EasyZipShared
 import Foundation
 import UniformTypeIdentifiers
 
+enum ExternalSelectionDisposition: Equatable {
+    case handledInBackground
+    case requiresWorkspace
+}
+
 @MainActor
 final class EasyZipAppModel: ObservableObject {
     @Published var mode: WorkspaceMode = .compress {
@@ -73,20 +78,24 @@ final class EasyZipAppModel: ObservableObject {
     private let settings: EasyZipAppSettings
     private let rarCommandResolver: RARCommandResolver
     private let zstdCommandResolver: ZstdCommandResolver
+    private let taskResultNotifier: (TaskResult) -> Void
     private var settingsCancellables: Set<AnyCancellable> = []
     private var extractionPassword: String?
     private var conflictDecisionCoordinator: ArchiveConflictDecisionCoordinator?
     private var passwordRetryQueuedTaskID: UUID?
+    private var outputDirectoryRetryQueuedTaskID: UUID?
     private var shouldContinueQueueAfterCancellation = true
 
     init(
         settings: EasyZipAppSettings = .shared,
         rarCommandResolver: RARCommandResolver = RARCommandResolver(),
-        zstdCommandResolver: ZstdCommandResolver = ZstdCommandResolver()
+        zstdCommandResolver: ZstdCommandResolver = ZstdCommandResolver(),
+        taskResultNotifier: @escaping (TaskResult) -> Void = TaskCompletionNotifier.send
     ) {
         self.settings = settings
         self.rarCommandResolver = rarCommandResolver
         self.zstdCommandResolver = zstdCommandResolver
+        self.taskResultNotifier = taskResultNotifier
         outputDirectory = settings.effectiveDefaultOutputDirectory
         selectedFormat = settings.defaultCompressionFormat
         overwritePolicy = settings.defaultOverwritePolicy
@@ -210,8 +219,29 @@ final class EasyZipAppModel: ObservableObject {
         let panel = FileSelectionPanelFactory.makeOutputDirectoryPanel()
 
         if panel.runModal() == .OK, let url = panel.url {
-            outputDirectory = url
-            recordRecentOutputDirectory(url)
+            useOutputDirectory(url)
+        }
+    }
+
+    func useOutputDirectory(_ url: URL) {
+        outputDirectory = url
+        recordRecentOutputDirectory(url)
+        updateWaitingExternalTaskOutputDirectories(url)
+
+        if let queuedTaskID = outputDirectoryRetryQueuedTaskID {
+            outputDirectoryRetryQueuedTaskID = nil
+            startOperation(reusingQueuedTaskID: queuedTaskID)
+        }
+    }
+
+    private func updateWaitingExternalTaskOutputDirectories(_ url: URL) {
+        for index in taskQueue.indices where taskQueue[index].status == .waiting {
+            guard taskQueue[index].snapshot.requiresExplicitOutputDirectory,
+                  taskQueue[index].snapshot.outputDirectory == nil else {
+                continue
+            }
+
+            taskQueue[index].snapshot.outputDirectory = url
         }
     }
 
@@ -265,7 +295,11 @@ final class EasyZipAppModel: ObservableObject {
         updateDefaultArchiveName()
     }
 
-    func prepareExternalSelection(mode: WorkspaceMode, fileURLs: [URL]) {
+    @discardableResult
+    func prepareExternalSelection(
+        mode: WorkspaceMode,
+        fileURLs: [URL]
+    ) -> ExternalSelectionDisposition {
         let inputFilterResult = ArchiveInputFilter.filter(fileURLs, for: mode)
         let acceptedFileURLs = FileURLListNormalizer.uniqueStandardizedFileURLs(
             inputFilterResult.acceptedFileURLs
@@ -273,23 +307,18 @@ final class EasyZipAppModel: ObservableObject {
 
         guard !acceptedFileURLs.isEmpty else {
             reportNoAcceptableFiles(mode: mode)
-            return
+            return .requiresWorkspace
         }
 
-        guard !isRunning, passwordPrompt == nil else {
-            enqueueExternalSelection(
-                mode: mode,
-                fileURLs: acceptedFileURLs,
-                rejectedCount: inputFilterResult.rejectedCount
-            )
-            return
-        }
+        let externalOutputDirectory = settings.effectiveDefaultOutputDirectory ?? outputDirectory
+        enqueueExternalSelection(
+            mode: mode,
+            fileURLs: acceptedFileURLs,
+            outputDirectory: externalOutputDirectory,
+            rejectedCount: inputFilterResult.rejectedCount
+        )
 
-        if inputFilterResult.rejectedCount > 0 {
-            reportRejectedArchiveInputs(count: inputFilterResult.rejectedCount, mode: mode)
-        }
-
-        applyExternalSelection(mode: mode, fileURLs: acceptedFileURLs)
+        return externalOutputDirectory == nil ? .requiresWorkspace : .handledInBackground
     }
 
     func submitExtractionPassword(_ password: String) {
@@ -338,44 +367,44 @@ final class EasyZipAppModel: ObservableObject {
         )
     }
 
-    private func applyExternalSelection(mode: WorkspaceMode, fileURLs: [URL]) {
-        let shouldMerge = self.mode == mode && !selectedItems.isEmpty
-
-        self.mode = mode
-
-        if !shouldMerge {
-            selectedItems.removeAll()
-            archiveEntries.removeAll()
-            selectedArchiveEntryPaths.removeAll()
-            clearExtractionPassword()
-            previewState = mode == .extract ? "未选择归档" : "归档预览"
-        }
-
-        addFileURLs(fileURLs)
-
-        taskResult = TaskResult(
-            title: shouldMerge ? "已合并新选择" : "已载入新选择",
-            detail: "\(mode.rawValue)队列当前包含 \(selectedItems.count) 项",
-            outputURL: nil,
-            iconName: shouldMerge ? "plus.square.on.square" : "tray.full"
-        )
-    }
-
     private func enqueueExternalSelection(
         mode: WorkspaceMode,
         fileURLs: [URL],
+        outputDirectory: URL?,
         rejectedCount: Int
     ) {
-        let snapshot = externalTaskSnapshot(mode: mode, fileURLs: fileURLs)
+        let waitsForCurrentTask = isRunning || passwordPrompt != nil
+        let snapshot = externalTaskSnapshot(
+            mode: mode,
+            fileURLs: fileURLs,
+            outputDirectory: outputDirectory
+        )
         enqueueTask(snapshot)
 
         let rejectedDetail = rejectedCount > 0
             ? ", 已忽略 \(rejectedCount) 个不支持解压的文件"
             : ""
-        alert = AppAlert(
-            title: "已加入任务队列",
-            message: "当前任务完成后自动执行 \(fileURLs.count) 项\(mode.rawValue)文件\(rejectedDetail)"
-        )
+
+        if waitsForCurrentTask {
+            let outputDetail = outputDirectory == nil ? ", 执行前需要选择输出目录" : ""
+            alert = AppAlert(
+                title: "已加入任务队列",
+                message: "当前任务完成后自动执行 \(fileURLs.count) 项\(mode.rawValue)文件\(rejectedDetail)\(outputDetail)"
+            )
+            return
+        }
+
+        if outputDirectory == nil {
+            let message = mode == .compress
+                ? "压缩前请先选择一个可写入的输出目录"
+                : "解压前请先选择一个可写入的输出目录"
+            alert = AppAlert(
+                title: "请选择输出目录",
+                message: "\(message)\(rejectedDetail)"
+            )
+        } else if rejectedCount > 0 {
+            reportRejectedArchiveInputs(count: rejectedCount, mode: mode)
+        }
     }
 
     func startOperation(reusingQueuedTaskID: UUID? = nil) {
@@ -419,20 +448,19 @@ final class EasyZipAppModel: ObservableObject {
 
         guard requiredExternalToolsAreAvailable else {
             reportMissingRequiredExternalTool()
-            finishQueuedTaskFromCurrentResult(id: queuedTaskID, status: .failed)
-            startNextQueuedTaskIfPossible()
+            failQueuedTaskBeforeStart(id: queuedTaskID)
             return
         }
 
         guard compressionPasswordIsValid() else {
-            finishQueuedTaskFromCurrentResult(id: queuedTaskID, status: .failed)
-            startNextQueuedTaskIfPossible()
+            failQueuedTaskBeforeStart(id: queuedTaskID)
             return
         }
 
-        guard outputDirectoryIsReadyForCurrentOperation() else {
-            finishQueuedTaskFromCurrentResult(id: queuedTaskID, status: .failed)
-            startNextQueuedTaskIfPossible()
+        guard outputDirectoryIsReadyForCurrentOperation(
+            requiresExplicitOutputDirectory: task.snapshot.requiresExplicitOutputDirectory
+        ) else {
+            outputDirectoryRetryQueuedTaskID = queuedTaskID
             return
         }
 
@@ -746,7 +774,11 @@ final class EasyZipAppModel: ObservableObject {
                         return
                     }
 
-                    self.outputDirectory = self.settings.effectiveDefaultOutputDirectory
+                    if let outputDirectory = self.settings.effectiveDefaultOutputDirectory {
+                        self.useOutputDirectory(outputDirectory)
+                    } else {
+                        self.outputDirectory = nil
+                    }
                     self.showSettingsAppliedResult()
                 }
             }
@@ -815,6 +847,7 @@ final class EasyZipAppModel: ObservableObject {
             mode: mode,
             sourceURLs: selectedItems,
             outputDirectory: outputDirectory,
+            requiresExplicitOutputDirectory: false,
             selectedFormat: selectedFormat,
             overwritePolicy: overwritePolicy,
             archiveName: archiveName,
@@ -831,19 +864,24 @@ final class EasyZipAppModel: ObservableObject {
 
     private func externalTaskSnapshot(
         mode: WorkspaceMode,
-        fileURLs: [URL]
+        fileURLs: [URL],
+        outputDirectory: URL?
     ) -> ArchiveTaskSnapshot {
         ArchiveTaskSnapshot(
             mode: mode,
             sourceURLs: fileURLs,
             outputDirectory: outputDirectory,
-            selectedFormat: selectedFormat,
-            overwritePolicy: overwritePolicy,
-            archiveName: defaultArchiveName(for: fileURLs, format: selectedFormat),
+            requiresExplicitOutputDirectory: true,
+            selectedFormat: settings.defaultCompressionFormat,
+            overwritePolicy: settings.defaultOverwritePolicy,
+            archiveName: defaultArchiveName(
+                for: fileURLs,
+                format: settings.defaultCompressionFormat
+            ),
             includeHiddenFiles: includeHiddenFiles,
             preserveParentDirectory: preserveParentDirectory,
             preserveMetadata: preserveMetadata,
-            shouldCreateContainingDirectory: shouldCreateContainingDirectory,
+            shouldCreateContainingDirectory: settings.shouldCreateContainingDirectory,
             selectedEntryPaths: [],
             encryptCompression: false,
             compressionPassword: nil,
@@ -941,7 +979,9 @@ final class EasyZipAppModel: ObservableObject {
     }
 
     private func startNextQueuedTaskIfPossible() {
-        guard !isRunning, passwordPrompt == nil else {
+        guard !isRunning,
+              passwordPrompt == nil,
+              outputDirectoryRetryQueuedTaskID == nil else {
             return
         }
 
@@ -960,6 +1000,7 @@ final class EasyZipAppModel: ObservableObject {
                 task.status.isFinished
                     && task.id != activeQueuedTaskID
                     && task.id != passwordRetryQueuedTaskID
+                    && task.id != outputDirectoryRetryQueuedTaskID
             }) else {
                 return
             }
@@ -1019,19 +1060,23 @@ final class EasyZipAppModel: ObservableObject {
         if passwordRetryQueuedTaskID == id {
             passwordRetryQueuedTaskID = nil
         }
+
+        if outputDirectoryRetryQueuedTaskID == id {
+            outputDirectoryRetryQueuedTaskID = nil
+        }
     }
 
-    private func finishQueuedTaskFromCurrentResult(
-        id: UUID,
-        status: ArchiveQueuedTaskStatus
-    ) {
+    private func failQueuedTaskBeforeStart(id: UUID) {
         let result = taskResult ?? TaskResult(
-            title: status.title,
-            detail: "任务没有完成",
+            title: "操作失败",
+            detail: "任务没有开始",
             outputURL: nil,
-            iconName: status.iconName
+            iconName: "exclamationmark.triangle"
         )
-        finishQueuedTask(id: id, status: status, result: result)
+        finishQueuedTask(id: id, status: .failed, result: result)
+        recordRecentTask(result)
+        notifyTaskResultIfEnabled(result)
+        startNextQueuedTaskIfPossible()
     }
 
     private func compressionPasswordIsValid() -> Bool {
@@ -1053,14 +1098,18 @@ final class EasyZipAppModel: ObservableObject {
         return false
     }
 
-    private func outputDirectoryIsReadyForCurrentOperation() -> Bool {
-        guard mode == .compress,
+    private func outputDirectoryIsReadyForCurrentOperation(
+        requiresExplicitOutputDirectory: Bool = false
+    ) -> Bool {
+        guard mode == .compress || requiresExplicitOutputDirectory,
               outputDirectory == nil else {
             return true
         }
 
         let title = "请选择输出目录"
-        let message = "压缩前请先选择一个可写入的输出目录"
+        let message = mode == .compress
+            ? "压缩前请先选择一个可写入的输出目录"
+            : "解压前请先选择一个可写入的输出目录"
         taskResult = TaskResult(
             title: title,
             detail: message,
@@ -1299,9 +1348,7 @@ final class EasyZipAppModel: ObservableObject {
         taskResult = result
         finishQueuedTask(id: queuedTaskID, status: .succeeded, result: result)
         recordRecentTask(result)
-        if settings.taskCompletionNotificationEnabled {
-            TaskCompletionNotifier.send(result)
-        }
+        notifyTaskResultIfEnabled(result)
         refreshArchivePreview()
         startNextQueuedTaskIfPossible()
     }
@@ -1370,7 +1417,16 @@ final class EasyZipAppModel: ObservableObject {
         finishQueuedTask(id: queuedTaskID, status: .failed, result: result)
         recordRecentTask(result)
         alert = AppAlert(title: "操作失败", message: message)
+        notifyTaskResultIfEnabled(result)
         startNextQueuedTaskIfPossible()
+    }
+
+    private func notifyTaskResultIfEnabled(_ result: TaskResult) {
+        guard settings.taskCompletionNotificationEnabled else {
+            return
+        }
+
+        taskResultNotifier(result)
     }
 
     private func requestExtractionPasswordIfNeeded(for error: Error) -> Bool {

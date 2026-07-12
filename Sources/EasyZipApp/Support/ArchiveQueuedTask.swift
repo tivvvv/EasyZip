@@ -69,7 +69,8 @@ enum ArchiveQueuedTaskStatus: String, Sendable {
 struct ArchiveTaskSnapshot: Sendable {
     let mode: WorkspaceMode
     let sourceURLs: [URL]
-    let outputDirectory: URL?
+    var outputDirectory: URL?
+    let requiresExplicitOutputDirectory: Bool
     let selectedFormat: ArchiveFormat
     let overwritePolicy: OverwritePolicy
     let archiveName: String
@@ -117,6 +118,7 @@ struct ArchiveTaskSnapshot: Sendable {
             mode: mode,
             sourceURLs: sourceURLs,
             outputDirectory: outputDirectory,
+            requiresExplicitOutputDirectory: requiresExplicitOutputDirectory,
             selectedFormat: selectedFormat,
             overwritePolicy: overwritePolicy,
             archiveName: archiveName,
